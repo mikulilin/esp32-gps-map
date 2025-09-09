@@ -2,7 +2,8 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>GPS 模拟 + 华为云物模型 + 高德地图</title>
+<title>GPS 模拟 + 云端物模型 + 高德地图</title>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
 <style>
 html, body { height:100%; margin:0; }
@@ -17,7 +18,7 @@ html, body { height:100%; margin:0; }
   box-shadow: 0 0 5px rgba(0,0,0,0.3);
   z-index: 999;
 }
-button { margin-right: 5px; }
+button { margin-right: 5px; margin-bottom:3px; }
 #status { margin-top:5px; }
 </style>
 </head>
@@ -26,19 +27,21 @@ button { margin-right: 5px; }
   <button id="startBtn">启动模拟</button>
   <button id="stopBtn">停止模拟</button>
   <button onclick="clearPath()">清除轨迹</button>
-  <div id="status">物模型数据加载中...</div>
+  <button onclick="connectMQTT()">连接云端</button>
+  <button onclick="disconnectMQTT()">断开连接</button>
+  <div id="status">状态: 未连接</div>
 </div>
 <div id="mapContainer"></div>
 
 <script>
-// ---------- 高德地图初始化 ----------
-let initialPos = [108.073, 34.280]; // 默认西北农林科技大学北校区
+// ---------- 地图与轨迹 ----------
+let initialPos = [108.073, 34.280]; // 西北农林科技大学北校区
 const map = new AMap.Map('mapContainer', { zoom:16, center: initialPos });
 const marker = new AMap.Marker({ position: initialPos, map: map });
-let path = [];
+let path = [initialPos];
 const polyline = new AMap.Polyline({ path:[initialPos], strokeColor:"#FF0000", strokeWeight:4, map:map });
 
-// ---------- 本地模拟 GPS ----------
+// ---------- 模拟 GPS ----------
 let simulateInterval = null;
 function startSimulation() {
   if(simulateInterval) return;
@@ -54,9 +57,15 @@ function startSimulation() {
 function stopSimulation(){ if(simulateInterval){ clearInterval(simulateInterval); simulateInterval=null; } }
 document.getElementById('startBtn').onclick=startSimulation;
 document.getElementById('stopBtn').onclick=stopSimulation;
-function clearPath(){ path=[initialPos]; polyline.setPath([initialPos]); marker.setPosition(initialPos); map.setCenter(initialPos); }
 
-// ---------- 更新地图轨迹 ----------
+function clearPath(){
+  path=[initialPos];
+  polyline.setPath([initialPos]);
+  marker.setPosition(initialPos);
+  map.setCenter(initialPos);
+}
+
+// ---------- 更新地图 ----------
 function updateMap(pos){
   path.push(pos);
   marker.setPosition(pos);
@@ -64,53 +73,59 @@ function updateMap(pos){
   polyline.setPath(path);
 }
 
-// ---------- 云端物模型 API 配置 ----------
-const projectId = 'YOUR_PROJECT_ID';
-const deviceId = '68bfe47d32771f177b5e1bf8_guiji-001';
-const username = 'YOUR_USERNAME';
-const password = 'YOUR_PASSWORD';
-const domain = 'YOUR_ACCOUNT_NAME';
-const projectName = 'YOUR_PROJECT_NAME';
-let token = '';
+// ---------- MQTT WebSocket 订阅云端物模型 ----------
+const mqttConfig = {
+  hostname: '5791e7b116.st1.iotda-device.cn-north-4.myhuaweicloud.com',
+  clientId: '68bfe47d32771f177b5e1bf8_guiji-001_0_0_2025090914',
+  username: '68bfe47d32771f177b5e1bf8_guiji-001',
+  password: '7c4546ca912f90c51aefe02f5cd58757cfab4789aac12ab63a6cb905cf7e16bb',
+  topic: '$oc/devices/68bfe47d32771f177b5e1bf8_guiji-001/sys/properties/report'
+};
+let client = null;
 
-// 获取 Token
-async function getToken(){
-  const res = await fetch('https://iam.cn-north-4.myhuaweicloud.com/v3/auth/tokens',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
-      auth:{
-        identity:{ methods:['password'], password:{ user:{ name:username, password:password, domain:{name:domain} } } },
-        scope:{ project:{name:projectName} }
-      }
-    })
+function connectMQTT(){
+  if(client && client.connected) return;
+  const url = `wss://${mqttConfig.hostname}/mqtt`;
+  client = mqtt.connect(url, {
+    clientId: mqttConfig.clientId,
+    username: mqttConfig.username,
+    password: mqttConfig.password,
+    protocol: 'wss',
+    clean: true
   });
-  token = res.headers.get('X-Subject-Token');
-  console.log('Token:', token);
+
+  client.on('connect', ()=>document.getElementById('status').innerText='状态: 已连接');
+  client.on('error', err=>document.getElementById('status').innerText='状态: 连接错误 ' + err);
+  client.on('close', ()=>document.getElementById('status').innerText='状态: 已断开');
+  client.on('message', (topic,message)=>{
+    try{
+      const data = JSON.parse(message.toString());
+      if(data.services && data.services[0] && data.services[0].properties){
+        const props = data.services[0].properties;
+        document.getElementById('status').innerText = `状态: 已连接 | 云端经度: ${props.longitude}, 纬度: ${props.latitude}`;
+        // 蓝色标记显示云端位置
+        const cloudPos = [props.longitude, props.latitude];
+        if(!window.cloudMarker){
+          window.cloudMarker = new AMap.Marker({ position: cloudPos, map: map, icon: 'https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png' });
+        }else{
+          window.cloudMarker.setPosition(cloudPos);
+        }
+      }
+    }catch(e){ console.error(e); }
+  });
+
+  client.subscribe(mqttConfig.topic, err=>{
+    if(err) console.error('订阅失败:', err);
+    else console.log('已订阅物模型Topic');
+  });
 }
 
-// 获取设备物模型数据
-async function getDeviceShadow(){
-  if(!token) return;
-  try{
-    const res = await fetch(`https://iotda.cn-north-4.myhuaweicloud.com/v5/iot/${projectId}/devices/${deviceId}/shadow`, {
-      headers:{ 'X-Auth-Token': token, 'Content-Type':'application/json' }
-    });
-    const data = await res.json();
-    if(data.services && data.services[0] && data.services[0].properties){
-      const props = data.services[0].properties;
-      document.getElementById('status').innerText = `云端数据 - 经度: ${props.longitude}, 纬度: ${props.latitude}`;
-    }
-  }catch(e){ console.error('获取物模型失败', e); }
+function disconnectMQTT(){
+  if(client && client.connected){
+    client.end(true);
+    document.getElementById('status').innerText='状态: 已手动断开';
+  }
 }
-
-// ---------- 主流程 ----------
-async function main(){
-  await getToken();
-  getDeviceShadow();
-  setInterval(getDeviceShadow, 5000); // 每5秒刷新一次
-}
-main();
 </script>
 </body>
 </html>
