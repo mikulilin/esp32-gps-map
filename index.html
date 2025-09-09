@@ -6,17 +6,33 @@
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
-    #mapContainer { width: 100%; height: 500px; }
-    #controls { margin-top: 10px; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 999;
+      background: rgba(255,255,255,0.9);
+      padding: 5px 10px;
+      border-radius: 5px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+    }
+    #mapContainer {
+      width: 100%;
+      height: 100%;
+    }
   </style>
 </head>
 <body>
-  <h1>GPS实时监控+轨迹</h1>
-  <div id="mapContainer"></div>
   <div id="controls">
     <button onclick="sendCommand('START')">开始</button>
     <button onclick="sendCommand('STOP')">停止</button>
   </div>
+  <div id="mapContainer"></div>
 
   <script>
     // ---------- 高德地图初始化 ----------
@@ -25,16 +41,12 @@
       center: [113.12345, 23.12345]
     });
 
-    // Marker 初始化
     const marker = new AMap.Marker({
       position: [113.12345, 23.12345],
       map: map
     });
 
-    // 轨迹点数组
     let path = [];
-
-    // Polyline 轨迹线
     const polyline = new AMap.Polyline({
       path: path,
       strokeColor: "#FF0000",
@@ -67,11 +79,9 @@
         const lng = parseFloat(data.lon);
         const lat = parseFloat(data.lat);
 
-        // 更新 Marker
         marker.setPosition([lng, lat]);
         map.setCenter([lng, lat]);
 
-        // 添加轨迹点
         path.push([lng, lat]);
         polyline.setPath(path);
       } catch (e) {
@@ -83,7 +93,6 @@
       console.error('MQTT Error:', err);
     });
 
-    // ---------- 前端发送控制命令 ----------
     function sendCommand(cmd) {
       const payload = JSON.stringify({ command: cmd });
       client.publish('/68bfe47d32771f177b5e1bf8_guiji-001/command', payload);
