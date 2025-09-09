@@ -114,22 +114,27 @@ function updateStatus(text){ document.getElementById('status').innerText=`状态
 
 function connectMQTT(){
   if(client && client.connected) return;
-  const url=`wss://${mqttConfig.hostname}/mqtt`;
+  const url=`wss://${mqttConfig.hostname}/mqtt`; // 华为云 WSS 443 默认端口
   updateStatus('连接中...');
-  client=mqtt.connect(url,{
-    clientId:mqttConfig.clientId,
-    username:mqttConfig.username,
-    password:mqttConfig.password,
-    protocol:'wss',
-    clean:true
-  });
+  try{
+    client=mqtt.connect(url,{
+      clientId:mqttConfig.clientId,
+      username:mqttConfig.username,
+      password:mqttConfig.password,
+      protocol:'wss',
+      clean:true,
+      reconnectPeriod:0 // 禁止自动重连
+    });
+  }catch(e){ console.error('连接异常', e); updateStatus('连接异常'); return; }
+
   client.on('connect',()=>{
     updateStatus('已连接');
-    // 订阅所有属性响应
-    client.subscribe(`$oc/devices/${deviceId}/sys/properties/get/response/#`);
+    client.subscribe(`$oc/devices/${deviceId}/sys/properties/get/response/#`, err=>{
+      if(err){ console.error('订阅失败', err); updateStatus('订阅失败'); }
+    });
     startAutoQuery();
   });
-  client.on('error',err=>{ console.error(err); updateStatus('连接错误'); });
+  client.on('error',err=>{ console.error('MQTT 错误', err); updateStatus('连接错误'); });
   client.on('close',()=>{ console.log('MQTT 已断开'); updateStatus('已断开'); stopAutoQuery(); });
   client.on('message',(topic,message)=>{ 
     try{ handleMQTTMessage(JSON.parse(message.toString())); }catch(e){console.error(e);}
@@ -151,7 +156,7 @@ function startAutoQuery(){
     const requestId='req_'+(++requestCounter);
     const reqTopic=`$oc/devices/${deviceId}/sys/properties/get/request_id=${requestId}`;
     const respTopic=`$oc/devices/${deviceId}/sys/properties/get/response/request_id=${requestId}`;
-    client.subscribe(respTopic);
+    client.subscribe(respTopic, err=>{ if(err) console.error('订阅响应失败', err); });
     client.publish(reqTopic,'{}'); // 空 JSON 请求平台属性
   },2000);
 }
