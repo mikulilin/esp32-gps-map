@@ -20,6 +20,7 @@
     }
     button { margin-right: 5px; margin-top:2px; }
     #coords, #status { display:block; margin-top:5px; font-weight:bold; }
+    #cloudData { display:block; margin-top:5px; font-weight:bold; color:blue; }
   </style>
 </head>
 <body>
@@ -31,6 +32,7 @@
   <button onclick="disconnectMQTT()">断开云端</button>
   <span id="coords">经纬度: -- , --</span>
   <span id="status">状态: 未连接</span>
+  <span id="cloudData">云端物模型: 无数据</span>
 </div>
 <div id="mapContainer"></div>
 
@@ -41,13 +43,13 @@ const marker = new AMap.Marker({ position:initialPos, map: map });
 
 // ---------- 初始化轨迹 ----------
 let path = [];
-let cloudPath = []; // 云端物模型轨迹（蓝色）
+let cloudPath = [];
 const savedPath = localStorage.getItem('gpsPath');
 if (savedPath) {
   try { path = JSON.parse(savedPath); } catch(e){ path=[]; }
 }
 const polyline = new AMap.Polyline({ path:path.length>0?path:[initialPos], strokeColor:"#FF0000", strokeWeight:4, map:map });
-const cloudPolyline = new AMap.Polyline({ path:[], strokeColor:"#0000FF", strokeWeight:4, map:map });
+const cloudPolyline = new AMap.Polyline({ path:cloudPath.length>0?cloudPath:[initialPos], strokeColor:"#0000FF", strokeWeight:4, map:map });
 
 // ---------- 浏览器定位 ----------
 if(navigator.geolocation){
@@ -60,9 +62,11 @@ if(navigator.geolocation){
 
 // ---------- 清除轨迹 ----------
 function clearPath(){
-  path=[]; cloudPath=[]; 
-  polyline.setPath([initialPos]); cloudPolyline.setPath([]);
-  marker.setPosition(initialPos); map.setCenter(initialPos); localStorage.removeItem('gpsPath');
+  path=[]; cloudPath=[];
+  polyline.setPath([initialPos]); cloudPolyline.setPath([initialPos]);
+  marker.setPosition(initialPos); map.setCenter(initialPos); 
+  localStorage.removeItem('gpsPath');
+  document.getElementById('cloudData').innerText='云端物模型: 无数据';
 }
 
 // ---------- 模拟 GPS ----------
@@ -76,7 +80,7 @@ function startSimulation(){
     lat += (Math.random()-0.5)*0.0005;
     const pos=[lng,lat];
     marker.setPosition(pos); map.setCenter(pos);
-    path.push(pos); polyline.setPath(path);
+    path.push(pos); polyline.setPath(path.length>0?path:[initialPos]);
     localStorage.setItem('gpsPath', JSON.stringify(path));
     document.getElementById('coords').innerText=`经纬度: ${lng.toFixed(6)} , ${lat.toFixed(6)}`;
   },2000);
@@ -94,7 +98,7 @@ const mqttConfig = {
   password: '7c4546ca912f90c51aefe02f5cd58757cfab4789aac12ab63a6cb905cf7e16bb',
 };
 
-function updateStatus(text, color='green'){
+function updateStatus(text, color='green'){ 
   const statusEl = document.getElementById('status');
   if(statusEl){ statusEl.innerText='状态: '+text; statusEl.style.color=color; }
 }
@@ -132,8 +136,9 @@ function connectMQTT(){
           if(svc.properties && !isNaN(svc.properties.longitude) && !isNaN(svc.properties.latitude)){
             const pos=[parseFloat(svc.properties.longitude), parseFloat(svc.properties.latitude)];
             marker.setPosition(pos); map.setCenter(pos);
-            cloudPath.push(pos); cloudPolyline.setPath(cloudPath);
+            cloudPath.push(pos); cloudPolyline.setPath(cloudPath.length>0?cloudPath:[initialPos]);
             document.getElementById('coords').innerText=`经纬度: ${pos[0].toFixed(6)} , ${pos[1].toFixed(6)}`;
+            document.getElementById('cloudData').innerText=`云端物模型: 经度 ${pos[0].toFixed(6)}, 纬度 ${pos[1].toFixed(6)}`;
           }
         });
       }
