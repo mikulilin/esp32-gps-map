@@ -18,9 +18,8 @@
       box-shadow: 0 0 5px rgba(0,0,0,0.3);
       z-index: 999;
     }
-    button { margin-right: 5px; }
+    button { margin-right: 5px; margin-top: 2px; }
     #coords, #status { display:block; margin-top:5px; font-weight:bold; }
-    #status { color: green; }
   </style>
 </head>
 <body>
@@ -97,28 +96,33 @@ const mqttConfig = {
 
 function updateStatus(text, color='green'){
   const statusEl = document.getElementById('status');
-  statusEl.innerText = '状态: ' + text;
-  statusEl.style.color = color;
+  if(statusEl){ statusEl.innerText = '状态: ' + text; statusEl.style.color = color; }
 }
 
 function connectMQTT(){
   if(client && client.connected) return;
   updateStatus('连接中...', 'orange');
   const url = `wss://${mqttConfig.hostname}:443/mqtt`;
-  client = mqtt.connect(url, { clientId:mqttConfig.clientId, username:mqttConfig.username, password:mqttConfig.password, protocol:'wss', clean:true });
-  
+  client = mqtt.connect(url, {
+    clientId:mqttConfig.clientId,
+    username:mqttConfig.username,
+    password:mqttConfig.password,
+    protocol:'wss',
+    clean:true,
+    reconnectPeriod:0  // 禁止自动重连
+  });
+
   client.on('connect',()=>updateStatus('已连接', 'green'));
   client.on('error', err=>updateStatus('连接错误', 'red'));
   client.on('close', ()=>updateStatus('已断开', 'gray'));
-  client.on('message', (topic,message)=>{ console.log('收到消息:',message.toString()); });
-  
-  client.subscribe(mqttConfig.topic);
+
+  // 不上传模拟数据到云端，所以不处理 message
+  // client.subscribe(mqttConfig.topic);
 }
 
 function disconnectMQTT(){
-  if(client && client.connected){
-    client.end();
-    updateStatus('已手动断开', 'gray');
+  if(client){
+    client.end(true, ()=>updateStatus('已手动断开', 'gray'));
   }
 }
 </script>
