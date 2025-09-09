@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>ESP32 GPS 轨迹地图</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; }
+    #map { width: 100%; height: 90vh; }
+    #controls {
+      height: 10vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: #f5f5f5;
+      border-top: 1px solid #ccc;
+      padding: 5px;
+    }
+    input, button {
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid #aaa;
+      font-size: 14px;
+    }
+    button {
+      cursor: pointer;
+      background: #0078ff;
+      color: white;
+      border: none;
+    }
+    button:hover {
+      background: #005ec4;
+    }
+  </style>
+  <!-- 高德地图 API（已替换为你的 Key） -->
+  <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088&plugin=AMap.ToolBar,AMap.Scale"></script>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="controls">
+    <input id="wsUrl" type="text" placeholder="ws://192.168.x.x:8080/gps" size="40">
+    <button onclick="connectWS()">连接 ESP32</button>
+  </div>
+
+  <script>
+    let map, polyline, path = [];
+    let ws;
+
+    // 初始化地图
+    function initMap() {
+      map = new AMap.Map('map', {
+        zoom: 15,
+        center: [116.397428, 39.90923] // 默认北京天安门
+      });
+
+      polyline = new AMap.Polyline({
+        path: path,
+        strokeColor: "#0078ff",
+        strokeWeight: 5
+      });
+      map.add(polyline);
+
+      map.addControl(new AMap.ToolBar());
+      map.addControl(new AMap.Scale());
+    }
+
+    // 连接 WebSocket
+    function connectWS() {
+      let url = document.getElementById("wsUrl").value;
+      if (!url) {
+        alert("请输入 ESP32 WebSocket 地址，例如 ws://192.168.1.100:8080/gps");
+        return;
+      }
+      if (ws) ws.close();
+
+      ws = new WebSocket(url);
+      ws.onopen = () => console.log("✅ WebSocket 已连接:", url);
+      ws.onclose = () => console.log("❌ WebSocket 已关闭");
+      ws.onerror = (e) => console.error("⚠️ WebSocket 错误:", e);
+
+      ws.onmessage = (event) => {
+        try {
+          let data = JSON.parse(event.data); // {lat: xx, lon: xx}
+          if (data.lat && data.lon) {
+            let lnglat = [data.lon, data.lat];
+            path.push(lnglat);
+            polyline.setPath(path);
+            map.setCenter(lnglat);
+          }
+        } catch (e) {
+          console.warn("收到无效数据:", event.data);
+        }
+      };
+    }
+
+    // 页面加载时初始化地图
+    window.onload = initMap;
+  </script>
+</body>
+</html>
