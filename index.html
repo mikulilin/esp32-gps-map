@@ -2,45 +2,29 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GPS 实时监控 + 历史轨迹缓存</title>
+  <title>GPS 前端模拟 + 华为云 MQTT 接口预留</title>
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
-    html, body {
-      height: 100%;
-      margin: 0;
-    }
+    html, body { height:100%; margin:0; }
+    #mapContainer { width:100%; height:100%; }
     #controls {
       position: absolute;
       top: 10px;
       left: 10px;
-      z-index: 999;
       background: rgba(255,255,255,0.9);
       padding: 5px 10px;
       border-radius: 5px;
       box-shadow: 0 0 5px rgba(0,0,0,0.3);
+      z-index: 999;
     }
-    #mqttStatus {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: red;
-      margin-left: 5px;
-    }
-    #mapContainer {
-      width: 100%;
-      height: 100%;
-    }
+    button { margin-right: 5px; }
   </style>
 </head>
 <body>
   <div id="controls">
-    <button onclick="sendCommand('START')">开始</button>
-    <button onclick="sendCommand('STOP')">停止</button>
-    <button onclick="simulateGPS()">模拟 GPS 数据</button>
-    MQTT:
-    <div id="mqttStatus"></div>
+    <button onclick="simulateGPS()">模拟 GPS</button>
+    <button onclick="clearPath()">清除轨迹</button>
+    <button onclick="connectMQTT()">连接 MQTT（预留）</button>
   </div>
   <div id="mapContainer"></div>
 
@@ -58,15 +42,16 @@
 
     // ---------- 初始化轨迹 ----------
     let path = [];
-
-    // 从 localStorage 加载历史轨迹
     const savedPath = localStorage.getItem('gpsPath');
     if (savedPath) {
-      path = JSON.parse(savedPath);
+      try {
+        const parsed = JSON.parse(savedPath);
+        path = parsed.filter(p => Array.isArray(p) && p.length === 2 && !isNaN(p[0]) && !isNaN(p[1]));
+      } catch(e) { path = []; }
     }
 
     const polyline = new AMap.Polyline({
-      path: path,
+      path: path.length > 0 ? path : [[113.12345, 23.12345]],
       strokeColor: "#FF0000",
       strokeWeight: 4,
       map: map
@@ -77,86 +62,62 @@
       map.setCenter(path[path.length - 1]);
     }
 
-    // ---------- MQTT 连接状态显示 ----------
-    const mqttStatus = document.getElementById('mqttStatus');
-    function updateStatus(connected) {
-      mqttStatus.style.background = connected ? 'green' : 'red';
-    }
-
-    // ---------- 华为云 MQTT 连接 ----------
-    const mqttHost = "wss://5791e7b116.st1.iotda-device.cn-north-4.myhuaweicloud.com/mqtt";
-    const mqttOptions = {
-      clientId: "68bfe47d32771f177b5e1bf8_guiji-001_0_0_2025090908",
-      username: "68bfe47d32771f177b5e1bf8_guiji-001",
-      password: "591753c344ea181736aceffb9917a1bb",
-      keepalive: 60,
-      reconnectPeriod: 2000
-    };
-
-    const client = mqtt.connect(mqttHost, mqttOptions);
-
-    client.on('connect', () => {
-      console.log('MQTT connected!');
-      updateStatus(true);
-      client.subscribe('/68bfe47d32771f177b5e1bf8_guiji-001/data', (err) => {
-        if (!err) console.log('Subscribed to GPS data');
-      });
-    });
-
-    client.on('error', (err) => {
-      console.error('MQTT Error:', err);
-      updateStatus(false);
-    });
-
-    client.on('close', () => {
-      console.warn('MQTT disconnected');
-      updateStatus(false);
-    });
-
-    // ---------- 处理 MQTT 消息 ----------
-    client.on('message', (topic, message) => {
-      try {
-        const data = JSON.parse(message.toString());
-        const lng = parseFloat(data.lon);
-        const lat = parseFloat(data.lat);
-
-        if (!isNaN(lng) && !isNaN(lat)) {
-          const pos = [lng, lat];
-          marker.setPosition(pos);
-          map.setCenter(pos);
-
-          path.push(pos);
-          polyline.setPath(path);
-
-          // 保存到 localStorage
-          localStorage.setItem('gpsPath', JSON.stringify(path));
-        } else {
-          console.warn('收到无效 GPS 数据:', data);
-        }
-      } catch (e) {
-        console.error('解析GPS数据出错:', e);
-      }
-    });
-
-    // ---------- 发送控制命令 ----------
-    function sendCommand(cmd) {
-      const payload = JSON.stringify({ command: cmd });
-      client.publish('/68bfe47d32771f177b5e1bf8_guiji-001/command', payload);
-      console.log('Command sent:', payload);
+    // ---------- 清除轨迹 ----------
+    function clearPath() {
+      path = [];
+      polyline.setPath([[113.12345, 23.12345]]);
+      marker.setPosition([113.12345, 23.12345]);
+      map.setCenter([113.12345, 23.12345]);
+      localStorage.removeItem('gpsPath');
+      console.log('轨迹已清除');
     }
 
     // ---------- 模拟 GPS 数据 ----------
     function simulateGPS() {
-      let lng = path.length > 0 ? path[path.length-1][0] : 113.12345;
-      let lat = path.length > 0 ? path[path.length-1][1] : 23.12345;
+      console.log('开始模拟 GPS 数据...');
       setInterval(() => {
+        let lng = path.length > 0 ? path[path.length-1][0] : 113.12345;
+        let lat = path.length > 0 ? path[path.length-1][1] : 23.12345;
         lng += (Math.random() - 0.5) * 0.001;
         lat += (Math.random() - 0.5) * 0.001;
-        const msg = JSON.stringify({ lon: lng, lat: lat });
-        console.log('模拟 GPS 数据:', msg);
-        client.emit('message', '/68bfe47d32771f177b5e1bf8_guiji-001/data', Buffer.from(msg));
+
+        const msg = { lon: lng, lat: lat };
+        console.log('模拟 MQTT 数据:', msg);
+
+        // 调用统一的消息处理接口
+        handleMQTTMessage(msg);
       }, 2000);
     }
+
+    // ---------- 统一处理“MQTT 消息” ----------
+    function handleMQTTMessage(data) {
+      const lng = parseFloat(data.lon);
+      const lat = parseFloat(data.lat);
+      if (!isNaN(lng) && !isNaN(lat)) {
+        const pos = [lng, lat];
+        marker.setPosition(pos);
+        map.setCenter(pos);
+        path.push(pos);
+        polyline.setPath(path);
+        localStorage.setItem('gpsPath', JSON.stringify(path));
+      }
+    }
+
+    // ---------- 连接华为云 MQTT（预留接口） ----------
+    function connectMQTT() {
+      console.log('这里是华为云 MQTT 接口预留，你可以在此接入真实 MQTT 设备');
+      /*
+      示例：
+      const client = mqtt.connect('wss://hostname/mqtt', {
+        clientId: 'xxx|securemode=3,signmethod=hmacsha1,timestamp=...',
+        username: '设备ID&产品ID',
+        password: '签名生成的密码'
+      });
+      client.on('connect', () => console.log('MQTT connected'));
+      client.on('message', (topic, message) => handleMQTTMessage(JSON.parse(message)));
+      */
+    }
+
   </script>
 </body>
 </html>
