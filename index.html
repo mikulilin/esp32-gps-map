@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GPS 模拟 + 浏览器定位 + 华为云 WSS MQTT</title>
+  <title>GPS 模拟 + 云端物模型 + 高德地图</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
   <style>
@@ -18,7 +18,7 @@
       box-shadow: 0 0 5px rgba(0,0,0,0.3);
       z-index: 999;
     }
-    button { margin-right: 5px; margin-top: 2px; }
+    button { margin-right: 5px; margin-top:2px; }
     #coords, #status { display:block; margin-top:5px; font-weight:bold; }
   </style>
 </head>
@@ -41,43 +41,44 @@ const marker = new AMap.Marker({ position:initialPos, map: map });
 
 // ---------- 初始化轨迹 ----------
 let path = [];
+let cloudPath = []; // 云端物模型轨迹（蓝色）
 const savedPath = localStorage.getItem('gpsPath');
 if (savedPath) {
-  try {
-    const parsed = JSON.parse(savedPath);
-    path = parsed.filter(p => Array.isArray(p) && p.length===2 && !isNaN(p[0]) && !isNaN(p[1]));
-  } catch(e){ path=[]; }
+  try { path = JSON.parse(savedPath); } catch(e){ path=[]; }
 }
 const polyline = new AMap.Polyline({ path:path.length>0?path:[initialPos], strokeColor:"#FF0000", strokeWeight:4, map:map });
-if(path.length>0){ marker.setPosition(path[path.length-1]); map.setCenter(path[path.length-1]); }
+const cloudPolyline = new AMap.Polyline({ path:[], strokeColor:"#0000FF", strokeWeight:4, map:map });
 
 // ---------- 浏览器定位 ----------
 if(navigator.geolocation){
   navigator.geolocation.getCurrentPosition(position=>{
     const lng=position.coords.longitude, lat=position.coords.latitude;
-    initialPos=[lng,lat];
-    marker.setPosition(initialPos); map.setCenter(initialPos);
+    initialPos=[lng,lat]; marker.setPosition(initialPos); map.setCenter(initialPos);
     if(path.length===0){ path.push(initialPos); polyline.setPath(path); }
   }, error=>{ console.warn('定位失败，使用默认坐标', error); });
 }
 
 // ---------- 清除轨迹 ----------
-function clearPath(){ path=[]; polyline.setPath([initialPos]); marker.setPosition(initialPos); map.setCenter(initialPos); localStorage.removeItem('gpsPath'); }
+function clearPath(){
+  path=[]; cloudPath=[]; 
+  polyline.setPath([initialPos]); cloudPolyline.setPath([]);
+  marker.setPosition(initialPos); map.setCenter(initialPos); localStorage.removeItem('gpsPath');
+}
 
 // ---------- 模拟 GPS ----------
-let simulateInterval = null;
+let simulateInterval=null;
 function startSimulation(){
   if(simulateInterval) return;
-  simulateInterval = setInterval(()=>{
-    let lng = path.length>0?path[path.length-1][0]:initialPos[0];
-    let lat = path.length>0?path[path.length-1][1]:initialPos[1];
+  simulateInterval=setInterval(()=>{
+    let lng=path.length>0?path[path.length-1][0]:initialPos[0];
+    let lat=path.length>0?path[path.length-1][1]:initialPos[1];
     lng += (Math.random()-0.5)*0.0005;
     lat += (Math.random()-0.5)*0.0005;
     const pos=[lng,lat];
     marker.setPosition(pos); map.setCenter(pos);
     path.push(pos); polyline.setPath(path);
     localStorage.setItem('gpsPath', JSON.stringify(path));
-    document.getElementById('coords').innerText = `经纬度: ${lng.toFixed(6)} , ${lat.toFixed(6)}`;
+    document.getElementById('coords').innerText=`经纬度: ${lng.toFixed(6)} , ${lat.toFixed(6)}`;
   },2000);
 }
 function stopSimulation(){ if(simulateInterval){ clearInterval(simulateInterval); simulateInterval=null; } }
@@ -91,39 +92,57 @@ const mqttConfig = {
   clientId: '68bfe47d32771f177b5e1bf8_guiji-001_0_0_2025090914',
   username: '68bfe47d32771f177b5e1bf8_guiji-001',
   password: '7c4546ca912f90c51aefe02f5cd58757cfab4789aac12ab63a6cb905cf7e16bb',
-  topic: '$oc/devices/68bfe47d32771f177b5e1bf8_guiji-001/sys/properties/report'
 };
 
 function updateStatus(text, color='green'){
   const statusEl = document.getElementById('status');
-  if(statusEl){ statusEl.innerText = '状态: ' + text; statusEl.style.color = color; }
+  if(statusEl){ statusEl.innerText='状态: '+text; statusEl.style.color=color; }
 }
 
 function connectMQTT(){
   if(client && client.connected) return;
   updateStatus('连接中...', 'orange');
   const url = `wss://${mqttConfig.hostname}:443/mqtt`;
-  client = mqtt.connect(url, {
+  client=mqtt.connect(url,{
     clientId:mqttConfig.clientId,
     username:mqttConfig.username,
     password:mqttConfig.password,
     protocol:'wss',
     clean:true,
-    reconnectPeriod:0  // 禁止自动重连
+    reconnectPeriod:0
   });
 
-  client.on('connect',()=>updateStatus('已连接', 'green'));
+  client.on('connect',()=>{
+    updateStatus('已连接', 'green');
+    // 订阅云端物模型属性下发
+    const propTopic = `$oc/devices/${mqttConfig.username}/sys/properties/set/#`;
+    client.subscribe(propTopic, err=>{
+      if(err) console.error('订阅物模型失败:', err);
+    });
+  });
+
   client.on('error', err=>updateStatus('连接错误', 'red'));
   client.on('close', ()=>updateStatus('已断开', 'gray'));
 
-  // 不上传模拟数据到云端，所以不处理 message
-  // client.subscribe(mqttConfig.topic);
+  client.on('message', (topic,message)=>{
+    try{
+      const msg=JSON.parse(message.toString());
+      if(msg.services && Array.isArray(msg.services)){
+        msg.services.forEach(svc=>{
+          if(svc.properties && !isNaN(svc.properties.longitude) && !isNaN(svc.properties.latitude)){
+            const pos=[parseFloat(svc.properties.longitude), parseFloat(svc.properties.latitude)];
+            marker.setPosition(pos); map.setCenter(pos);
+            cloudPath.push(pos); cloudPolyline.setPath(cloudPath);
+            document.getElementById('coords').innerText=`经纬度: ${pos[0].toFixed(6)} , ${pos[1].toFixed(6)}`;
+          }
+        });
+      }
+    }catch(e){ console.error('解析物模型数据失败:', e); }
+  });
 }
 
 function disconnectMQTT(){
-  if(client){
-    client.end(true, ()=>updateStatus('已手动断开', 'gray'));
-  }
+  if(client){ client.end(true, ()=>updateStatus('已手动断开', 'gray')); }
 }
 </script>
 </body>
