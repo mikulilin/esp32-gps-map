@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GPS 模拟 + 浏览器定位 + NB-IoT 数据显示</title>
+  <title>GPS 模拟 + 浏览器定位 + 华为云 WSS MQTT</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
   <style>
@@ -31,7 +31,7 @@
   <div id="mapContainer"></div>
 
   <script>
-    // ---------- 默认坐标：西北农林科技大学北校区 ----------
+    // 默认坐标：西北农林科技大学北校区
     let initialPos = [108.073, 34.280];
 
     const map = new AMap.Map('mapContainer', {
@@ -98,7 +98,6 @@
       simulateInterval = setInterval(()=>{
         let lng = path.length>0 ? path[path.length-1][0] : initialPos[0];
         let lat = path.length>0 ? path[path.length-1][1] : initialPos[1];
-        // 随机小幅移动
         lng += (Math.random()-0.5)*0.0005;
         lat += (Math.random()-0.5)*0.0005;
         const msg = { lon: lng, lat: lat };
@@ -120,33 +119,32 @@
       if(!isNaN(lng) && !isNaN(lat)){
         const pos = [lng, lat];
         marker.setPosition(pos);
-        map.setCenter(pos); // 锁定视角在当前位置
+        map.setCenter(pos); // 视角锁定在当前位置
         path.push(pos);
         polyline.setPath(path);
         localStorage.setItem('gpsPath', JSON.stringify(path));
       }
     }
 
-    // ---------- 华为云 MQTT ----------
+    // ---------- 华为云 WSS MQTT ----------
     let client = null;
     const mqttConfig = {
       hostname: '5791e7b116.st1.iotda-device.cn-north-4.myhuaweicloud.com',
-      port: 8883,
       clientId: '68bfe47d32771f177b5e1bf8_guiji-001_0_0_2025090908',
       username: '68bfe47d32771f177b5e1bf8_guiji-001',
-      password: 'YOUR_GENERATED_PASSWORD',  
-      protocol: 'wss',
+      password: 'YOUR_GENERATED_PASSWORD',
       topic: '/your/device/topic'
     };
 
     function connectMQTT(){
       if(client && client.connected) return;
-      const url = `wss://${mqttConfig.hostname}:${mqttConfig.port}/mqtt`;
+      const url = `wss://${mqttConfig.hostname}/mqtt`; // 注意：去掉端口
+      console.log('尝试连接 WSS URL:', url);
       client = mqtt.connect(url, {
         clientId: mqttConfig.clientId,
         username: mqttConfig.username,
         password: mqttConfig.password,
-        protocol: mqttConfig.protocol,
+        protocol: 'wss',
         clean: true
       });
 
