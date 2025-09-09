@@ -19,7 +19,8 @@
       z-index: 999;
     }
     button { margin-right: 5px; }
-    #coords { display:block; margin-top:5px; font-weight:bold; }
+    #coords, #status { display:block; margin-top:5px; font-weight:bold; }
+    #status { color: green; }
   </style>
 </head>
 <body>
@@ -30,6 +31,7 @@
   <button onclick="connectMQTT()">连接华为云 MQTT</button>
   <button onclick="disconnectMQTT()">断开云端</button>
   <span id="coords">经纬度: -- , --</span>
+  <span id="status">状态: 未连接</span>
 </div>
 <div id="mapContainer"></div>
 
@@ -93,17 +95,32 @@ const mqttConfig = {
   topic: '$oc/devices/68bfe47d32771f177b5e1bf8_guiji-001/sys/properties/report'
 };
 
+function updateStatus(text, color='green'){
+  const statusEl = document.getElementById('status');
+  statusEl.innerText = '状态: ' + text;
+  statusEl.style.color = color;
+}
+
 function connectMQTT(){
   if(client && client.connected) return;
+  updateStatus('连接中...', 'orange');
   const url = `wss://${mqttConfig.hostname}:443/mqtt`;
   client = mqtt.connect(url, { clientId:mqttConfig.clientId, username:mqttConfig.username, password:mqttConfig.password, protocol:'wss', clean:true });
-  client.on('connect',()=>console.log('MQTT 已连接'));
-  client.on('error', err=>console.error('MQTT 错误:',err));
-  client.on('close', ()=>console.log('MQTT 已断开'));
-  client.on('message', (topic,message)=>{ try{ console.log('收到消息:',message.toString()); }catch(e){} });
+  
+  client.on('connect',()=>updateStatus('已连接', 'green'));
+  client.on('error', err=>updateStatus('连接错误', 'red'));
+  client.on('close', ()=>updateStatus('已断开', 'gray'));
+  client.on('message', (topic,message)=>{ console.log('收到消息:',message.toString()); });
+  
   client.subscribe(mqttConfig.topic);
 }
-function disconnectMQTT(){ if(client && client.connected){ client.end(); console.log('已手动断开云端连接'); } }
+
+function disconnectMQTT(){
+  if(client && client.connected){
+    client.end();
+    updateStatus('已手动断开', 'gray');
+  }
+}
 </script>
 </body>
 </html>
