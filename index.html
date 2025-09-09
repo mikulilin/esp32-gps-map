@@ -1,100 +1,168 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <title>ESP32 GPS 轨迹地图</title>
-  <style>
-    body { margin: 0; font-family: Arial, sans-serif; }
-    #map { width: 100%; height: 90vh; }
-    #controls {
-      height: 10vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      background: #f5f5f5;
-      border-top: 1px solid #ccc;
-      padding: 5px;
-    }
-    input, button {
-      padding: 6px 10px;
-      border-radius: 6px;
-      border: 1px solid #aaa;
-      font-size: 14px;
-    }
-    button {
-      cursor: pointer;
-      background: #0078ff;
-      color: white;
-      border: none;
-    }
-    button:hover {
-      background: #005ec4;
-    }
-  </style>
-  <!-- 高德地图 API（已替换为你的 Key） -->
-  <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088&plugin=AMap.ToolBar,AMap.Scale"></script>
+<meta charset="utf-8">
+<title>ESP32 GPS 轨迹地图</title>
+<style>
+  body { margin: 0; font-family: Arial, sans-serif; }
+  #map { width: 100%; height: 90vh; }
+  #controls {
+    height: 10vh;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    background: #f5f5f5;
+    border-top: 1px solid #ccc;
+    padding: 5px 10px;
+    flex-wrap: wrap;
+  }
+  input, button, span {
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  input { border: 1px solid #aaa; flex: 1 1 200px; }
+  button {
+    cursor: pointer;
+    background: #0078ff;
+    color: white;
+    border: none;
+    margin-left: 5px;
+  }
+  button:hover { background: #005ec4; }
+  span { min-width: 120px; text-align: center; }
+</style>
+<script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088&plugin=AMap.ToolBar,AMap.Scale"></script>
 </head>
 <body>
-  <div id="map"></div>
-  <div id="controls">
-    <input id="wsUrl" type="text" placeholder="ws://192.168.x.x:8080/gps" size="40">
-    <button onclick="connectWS()">连接 ESP32</button>
-  </div>
+<div id="map"></div>
+<div id="controls">
+  <input id="wsUrl" type="text" placeholder="ws://192.168.x.x:8080/gps">
+  <button onclick="connectWS()">连接 ESP32</button>
+  <button onclick="clearPath()">清空轨迹</button>
+  <button onclick="exportGPX()">导出 GPX</button>
+  <span id="speedDisplay">速度: 0 km/h</span>
+  <span id="distanceDisplay">距离: 0 m</span>
+</div>
 
-  <script>
-    let map, polyline, path = [];
-    let ws;
+<script>
+let map, polyline, path = [];
+let ws;
+let totalDistance = 0;
+let startMarker = null;
+let endMarker = null;
 
-    // 初始化地图
-    function initMap() {
-      map = new AMap.Map('map', {
-        zoom: 15,
-        center: [116.397428, 39.90923] // 默认北京天安门
-      });
+// 计算两点间距离
+function getDistance(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = x => x*Math.PI/180;
+  const dLat = toRad(lat2-lat1);
+  const dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  const c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R*c;
+}
 
-      polyline = new AMap.Polyline({
-        path: path,
-        strokeColor: "#0078ff",
-        strokeWeight: 5
-      });
-      map.add(polyline);
+function initMap() {
+  map = new AMap.Map('map', { zoom: 15, center: [116.397428, 39.90923] });
+  polyline = new AMap.Polyline({ path: path, strokeColor: "#0078ff", strokeWeight: 5 });
+  map.add(polyline);
+  map.addControl(new AMap.ToolBar());
+  map.addControl(new AMap.Scale());
+}
 
-      map.addControl(new AMap.ToolBar());
-      map.addControl(new AMap.Scale());
-    }
+function connectWS() {
+  let url = document.getElementById("wsUrl").value;
+  if(!url){ alert("请输入 ESP32 WebSocket 地址"); return; }
+  if(ws) ws.close();
 
-    // 连接 WebSocket
-    function connectWS() {
-      let url = document.getElementById("wsUrl").value;
-      if (!url) {
-        alert("请输入 ESP32 WebSocket 地址，例如 ws://192.168.1.100:8080/gps");
-        return;
-      }
-      if (ws) ws.close();
+  ws = new WebSocket(url);
+  ws.onopen = () => console.log("WebSocket 已连接:", url);
+  ws.onclose = () => console.log("WebSocket 已关闭");
+  ws.onerror = e => console.error("WebSocket 错误:", e);
 
-      ws = new WebSocket(url);
-      ws.onopen = () => console.log("✅ WebSocket 已连接:", url);
-      ws.onclose = () => console.log("❌ WebSocket 已关闭");
-      ws.onerror = (e) => console.error("⚠️ WebSocket 错误:", e);
+  ws.onmessage = event => {
+    try {
+      let data = JSON.parse(event.data);
+      if(data.lat && data.lon){
+        const lnglat = [data.lon, data.lat];
 
-      ws.onmessage = (event) => {
-        try {
-          let data = JSON.parse(event.data); // {lat: xx, lon: xx}
-          if (data.lat && data.lon) {
-            let lnglat = [data.lon, data.lat];
-            path.push(lnglat);
-            polyline.setPath(path);
-            map.setCenter(lnglat);
-          }
-        } catch (e) {
-          console.warn("收到无效数据:", event.data);
+        if(path.length > 0){
+          const prev = path[path.length-1];
+          totalDistance += getDistance(prev[1], prev[0], lnglat[1], lnglat[0]);
         }
-      };
-    }
 
-    // 页面加载时初始化地图
-    window.onload = initMap;
-  </script>
+        path.push(lnglat);
+        polyline.setPath(path);
+        map.setCenter(lnglat);
+
+        document.getElementById("speedDisplay").textContent = `速度: ${data.speed ? data.speed.toFixed(1) : 0} km/h`;
+        document.getElementById("distanceDisplay").textContent = `距离: ${totalDistance.toFixed(1)} m`;
+
+        // 起点标记
+        if(!startMarker){
+          startMarker = new AMap.Marker({
+            position: lnglat,
+            map: map,
+            title: "起点",
+            icon: new AMap.Icon({size: [20,20], image: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'})
+          });
+        }
+
+        // 终点标记
+        if(endMarker){
+          endMarker.setPosition(lnglat);
+        } else {
+          endMarker = new AMap.Marker({
+            position: lnglat,
+            map: map,
+            title: "终点",
+            icon: new AMap.Icon({size: [20,20], image: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png'})
+          });
+        }
+      }
+    } catch(e){ console.warn("无效数据:", event.data); }
+  };
+}
+
+// 清空轨迹
+function clearPath() {
+  path = [];
+  totalDistance = 0;
+  polyline.setPath(path);
+  document.getElementById("speedDisplay").textContent = `速度: 0 km/h`;
+  document.getElementById("distanceDisplay").textContent = `距离: 0 m`;
+
+  if(startMarker){ startMarker.setMap(null); startMarker = null; }
+  if(endMarker){ endMarker.setMap(null); endMarker = null; }
+}
+
+// 导出 GPX
+function exportGPX() {
+  if(path.length === 0){ alert("没有轨迹可导出"); return; }
+
+  let gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="ESP32 GPS Demo">
+  <trk>
+    <name>ESP32 GPS轨迹</name>
+    <trkseg>\n`;
+
+  path.forEach(p => { gpx += `      <trkpt lat="${p[1]}" lon="${p[0]}"></trkpt>\n`; });
+
+  gpx += `    </trkseg>
+  </trk>
+</gpx>`;
+
+  const blob = new Blob([gpx], {type:"application/gpx+xml"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "track.gpx";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+window.onload = initMap;
+</script>
 </body>
 </html>
