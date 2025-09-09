@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GPS 模拟 + 浏览器定位 + 华为云 WSS MQTT</title>
+  <title>GPS 模拟 + 华为云 WSS MQTT 实时显示</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
   <style>
@@ -19,7 +19,7 @@
       z-index: 999;
       font-family: sans-serif;
     }
-    button { margin-right: 5px; margin-top: 2px; }
+    button { margin:2px 5px 2px 0; }
     #status, #coords { display:block; margin-top: 5px; font-weight:bold; }
   </style>
 </head>
@@ -29,6 +29,7 @@
     <button id="stopBtn">停止模拟</button>
     <button onclick="clearPath()">清除轨迹</button>
     <button onclick="connectMQTT()">连接华为云 MQTT</button>
+    <button onclick="disconnectMQTT()">断开 MQTT</button>
     <span id="status">状态: 未连接</span>
     <span id="coords">经纬度: -- , --</span>
   </div>
@@ -78,7 +79,7 @@
         }
         document.getElementById('coords').innerText = `经纬度: ${lng.toFixed(6)} , ${lat.toFixed(6)}`;
       }, error=>{
-        console.warn('定位失败，使用默认坐标（西北农林科技大学北校区）', error);
+        console.warn('定位失败，使用默认坐标', error);
       });
     }
 
@@ -192,12 +193,21 @@
       });
     }
 
+    function disconnectMQTT(){
+      if(client){
+        client.end(true, ()=>{
+          console.log('MQTT 已手动断开');
+          updateStatus('已断开');
+          client=null;
+        });
+      }
+    }
+
     function sendMQTT(data){
       if(client && client.connected){
         let payload;
         if(data.lon && data.lat){
-          // 模拟 GPS 格式
-          payload = {
+          payload={
             services:[
               {
                 service_id:'001',
@@ -209,7 +219,7 @@
             ]
           };
         } else {
-          payload = data;
+          payload=data;
         }
         client.publish(mqttConfig.topic, JSON.stringify(payload));
         console.log('上传到华为云:', payload);
