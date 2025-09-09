@@ -18,8 +18,8 @@
       box-shadow: 0 0 5px rgba(0,0,0,0.3);
       z-index: 999;
     }
-    button { margin-right: 5px; margin-bottom: 5px; }
-    #status { margin-top: 5px; font-weight: bold; }
+    button { margin-right: 5px; }
+    #status { margin-top:5px; }
   </style>
 </head>
 <body>
@@ -29,7 +29,7 @@
     <button onclick="clearPath()">清除轨迹</button>
     <button onclick="connectMQTT()">连接华为云 MQTT</button>
     <button onclick="disconnectMQTT()">断开连接</button>
-    <div id="status">MQTT 状态: 未连接</div>
+    <div id="status">MQTT状态: 未连接</div>
     <div id="modelData">物模型数据: 无</div>
   </div>
   <div id="mapContainer"></div>
@@ -104,8 +104,8 @@
         let lat = path.length>0 ? path[path.length-1][1] : initialPos[1];
         lng += (Math.random()-0.5)*0.0005;
         lat += (Math.random()-0.5)*0.0005;
-        const msg = { longitude: lng, latitude: lat };
-        handleModelData(msg);  // 更新地图轨迹
+        const msg = { lon: lng, lat: lat };
+        handleSimulationData(msg);  // 更新地图轨迹
       }, 2000);
     }
 
@@ -115,20 +115,16 @@
     document.getElementById('startBtn').onclick = startSimulation;
     document.getElementById('stopBtn').onclick = stopSimulation;
 
-    // ---------- 更新地图轨迹 ----------
-    function handleModelData(data){
-      const lng = parseFloat(data.longitude);
-      const lat = parseFloat(data.latitude);
+    function handleSimulationData(data){
+      const lng = parseFloat(data.lon);
+      const lat = parseFloat(data.lat);
       if(!isNaN(lng) && !isNaN(lat)){
         const pos = [lng, lat];
         marker.setPosition(pos);
-        map.setCenter(pos); // 视角锁定在当前位置
+        map.setCenter(pos);
         path.push(pos);
         polyline.setPath(path);
         localStorage.setItem('gpsPath', JSON.stringify(path));
-
-        // 显示物模型数据
-        document.getElementById('modelData').innerText = `物模型数据: 经度 ${lng.toFixed(6)}, 纬度 ${lat.toFixed(6)}`;
       }
     }
 
@@ -139,59 +135,79 @@
       clientId: '68bfe47d32771f177b5e1bf8_guiji-001_0_0_2025090914',
       username: '68bfe47d32771f177b5e1bf8_guiji-001',
       password: '7c4546ca912f90c51aefe02f5cd58757cfab4789aac12ab63a6cb905cf7e16bb',
-      topic: '$oc/devices/68bfe47d32771f177b5e1bf8_guiji-001/sys/properties/set/#' // 下行Topic
+      topic: '$oc/devices/68bfe47d32771f177b5e1bf8_guiji-001/sys/properties/set/#'
     };
 
     function connectMQTT(){
       if(client && client.connected) return;
       const url = `wss://${mqttConfig.hostname}/mqtt`;
       console.log('尝试连接 WSS URL:', url);
-      document.getElementById('status').innerText = 'MQTT 状态: 连接中...';
-
       client = mqtt.connect(url, {
         clientId: mqttConfig.clientId,
         username: mqttConfig.username,
         password: mqttConfig.password,
         protocol: 'wss',
-        clean: true,
-        reconnectPeriod: 0 // 手动断开后不自动重连
+        clean: true
       });
 
-      client.on('connect', ()=>{
+      client.on('connect',()=>{
         console.log('MQTT 已连接');
-        document.getElementById('status').innerText = 'MQTT 状态: 已连接';
-        client.subscribe(mqttConfig.topic, (err)=>{
+        document.getElementById('status').innerText = 'MQTT状态: 已连接';
+        client.subscribe(mqttConfig.topic, (err, granted)=>{
           if(err){
-            console.error('订阅失败:', err);
+            console.error('订阅失败', err);
           } else {
-            console.log('订阅成功:', mqttConfig.topic);
+            console.log('订阅成功', granted);
           }
         });
       });
 
-      client.on('error', err=>{
-        console.error('MQTT 错误:', err);
-        document.getElementById('status').innerText = 'MQTT 状态: 错误';
+      client.on('error',err=>{
+        console.error('MQTT 错误:',err);
+        document.getElementById('status').innerText = 'MQTT状态: 错误';
       });
 
-      client.on('close', ()=>{
+      client.on('close',()=>{
         console.log('MQTT 已断开');
-        document.getElementById('status').innerText = 'MQTT 状态: 已断开';
+        document.getElementById('status').innerText = 'MQTT状态: 已断开';
       });
 
-      client.on('message', (topic, message)=>{
+      client.on('message',(topic,message)=>{
         try{
           const data = JSON.parse(message.toString());
           handleModelData(data);
-        }catch(e){}
+        } catch(e){ console.error('解析消息出错', e);}
       });
     }
 
     function disconnectMQTT(){
-      if(client && client.connected){
+      if(client){
         client.end();
-        console.log('手动断开 MQTT 连接');
-        document.getElementById('status').innerText = 'MQTT 状态: 已断开';
+        client = null;
+        document.getElementById('status').innerText = 'MQTT状态: 手动断开';
+        console.log('已手动断开 MQTT');
+      }
+    }
+
+    function handleModelData(data){
+      try {
+        if(data.services && data.services.length>0 && data.services[0].properties){
+          const props = data.services[0].properties;
+          const lng = parseFloat(props.longitude);
+          const lat = parseFloat(props.latitude);
+          if(!isNaN(lng) && !isNaN(lat)){
+            const pos = [lng, lat];
+            marker.setPosition(pos);
+            map.setCenter(pos);
+            path.push(pos);
+            polyline.setPath(path);
+            localStorage.setItem('gpsPath', JSON.stringify(path));
+            // 显示物模型数据
+            document.getElementById('modelData').innerText = `物模型数据: 经度 ${lng.toFixed(6)}, 纬度 ${lat.toFixed(6)}`;
+          }
+        }
+      } catch(e){
+        console.error('解析物模型数据出错', e);
       }
     }
   </script>
