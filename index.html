@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>GPS 模拟 + 华为云物模型实时显示</title>
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-<script src="https://webapi.amap.com/maps?v=2.0&key=你的高德Key"></script>
+<script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
 <style>
 html, body { height:100%; margin:0; }
 #mapContainer { width:100%; height:100%; }
@@ -18,7 +18,8 @@ button { margin:2px 5px 2px 0; }
   <button id="startBtn">启动模拟</button>
   <button id="stopBtn">停止模拟</button>
   <button onclick="clearSimulation()">清除模拟轨迹</button>
-  <button onclick="disconnectMQTT()">断开云端连接</button>
+  <button onclick="connectMQTT()">连接云端</button>
+  <button onclick="disconnectMQTT()">断开云端</button>
   <span id="coords">经纬度: -- , --</span>
 </div>
 <div id="mapContainer"></div>
@@ -59,6 +60,7 @@ function startSimulation(){
     const pos = [lng, lat];
     pathSim.push(pos); polylineSim.setPath(pathSim);
     markerSim.setPosition(pos); map.setCenter(pos);
+    document.getElementById('coords').innerText = `经纬度: ${lng.toFixed(6)} , ${lat.toFixed(6)}`;
   },2000);
 }
 function stopSimulation(){ if(simulateInterval){ clearInterval(simulateInterval); simulateInterval=null; } }
@@ -68,9 +70,9 @@ function clearSimulation(){ pathSim=[]; polylineSim.setPath([initialPos]); marke
 let client = null;
 const mqttConfig = {
   hostname: '5791e7b116.st1.iotda-device.cn-north-4.myhuaweicloud.com',
-  clientId: '68bfe47d32771f177b5e1bf8_guiji-001_web_0_0_2025090914',
+  clientId: '68bfe47d32771f177b5e1bf8_guiji-001_0_0_2025090914',
   username: '68bfe47d32771f177b5e1bf8_guiji-001',
-  password: '你的设备密码或生成的Token',
+  password: '7c4546ca912f90c51aefe02f5cd58757cfab4789aac12ab63a6cb905cf7e16bb',
   topic: '$oc/devices/68bfe47d32771f177b5e1bf8_guiji-001/sys/properties/report'
 };
 
@@ -107,7 +109,6 @@ function disconnectMQTT(){
 
 // ---------- 更新蓝色云端轨迹 ----------
 function handleCloudMessage(data){
-  // 物模型格式：{"services":[{"service_id":"001","properties":{"longitude":120.456,"latitude":30.123}}]}
   if(data.services && data.services[0] && data.services[0].properties){
     const props = data.services[0].properties;
     const lng = parseFloat(props.longitude), lat = parseFloat(props.latitude);
@@ -125,6 +126,6 @@ function handleCloudMessage(data){
 // ---------- 按钮绑定 ----------
 document.getElementById('startBtn').onclick = startSimulation;
 document.getElementById('stopBtn').onclick = stopSimulation;
-
-// 自动连接华为云（不安全，仅测试）
-connectMQTT();
+</script>
+</body>
+</html>
