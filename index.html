@@ -6,10 +6,40 @@
     <style>
         html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; }
         #info {
-            position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.85);
-            padding: 8px; border-radius: 4px;
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(255,255,255,0.85);
+            padding: 12px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+            font-family: 'Arial', sans-serif;
+            z-index: 1000;
+            min-width: 140px;
         }
-        button { margin: 4px 0; }
+        #info .info-item {
+            margin-bottom: 8px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        #info .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        #info button {
+            padding: 6px 12px;
+            border: none;
+            background-color: #409EFF;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        #info button:hover {
+            background-color: #66b1ff;
+        }
     </style>
 
     <!-- 高德地图 JS API -->
@@ -20,9 +50,11 @@
 <body>
     <div id="map"></div>
     <div id="info">
-        <div>速度: <span id="speed">0</span> km/h</div>
-        <button onclick="clearPath()">清空轨迹</button>
-        <button onclick="exportGPX()">导出 GPX</button>
+        <div class="info-item">速度: <span id="speed">0</span> km/h</div>
+        <div class="btn-group">
+            <button onclick="clearPath()">清空轨迹</button>
+            <button onclick="exportGPX()">导出 GPX</button>
+        </div>
     </div>
 
     <script>
