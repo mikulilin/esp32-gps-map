@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GPS 模拟 + 浏览器定位 + MQTT WebSocket</title>
+  <title>GPS 模拟 + 浏览器定位 + NB-IoT 数据显示</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
   <style>
@@ -31,11 +31,11 @@
   <div id="mapContainer"></div>
 
   <script>
-    // ---------- 默认坐标（天安门） ----------
-    let initialPos = [116.397389, 39.908722];
+    // ---------- 默认坐标：西北农林科技大学北校区 ----------
+    let initialPos = [108.073, 34.280];
 
     const map = new AMap.Map('mapContainer', {
-      zoom: 15,
+      zoom: 16,
       center: initialPos
     });
 
@@ -66,17 +66,17 @@
     // ---------- 浏览器定位 ----------
     if(navigator.geolocation){
       navigator.geolocation.getCurrentPosition(position=>{
-        const lng=position.coords.longitude;
-        const lat=position.coords.latitude;
-        initialPos=[lng,lat];
+        const lng = position.coords.longitude;
+        const lat = position.coords.latitude;
+        initialPos = [lng, lat];
         marker.setPosition(initialPos);
         map.setCenter(initialPos);
-        if(path.length===0){
+        if(path.length === 0){
           path.push(initialPos);
           polyline.setPath(path);
         }
       }, error=>{
-        console.warn('定位失败，使用默认坐标（天安门）', error);
+        console.warn('定位失败，使用默认坐标（西北农林科技大学北校区）', error);
       });
     }
 
@@ -98,42 +98,43 @@
       simulateInterval = setInterval(()=>{
         let lng = path.length>0 ? path[path.length-1][0] : initialPos[0];
         let lat = path.length>0 ? path[path.length-1][1] : initialPos[1];
-        lng += (Math.random()-0.5)*0.001;
-        lat += (Math.random()-0.5)*0.001;
-        const msg={lon: lng, lat: lat};
-        handleMQTTMessage(msg);      // 本地更新地图
-        sendMQTT(msg);               // 上传到华为云
-      },2000);
+        // 随机小幅移动
+        lng += (Math.random()-0.5)*0.0005;
+        lat += (Math.random()-0.5)*0.0005;
+        const msg = { lon: lng, lat: lat };
+        handleMQTTMessage(msg);  // 更新地图轨迹
+        sendMQTT(msg);           // 上传到华为云（可选）
+      }, 2000);
     }
-    function stopSimulation(){ 
-      if(simulateInterval){ clearInterval(simulateInterval); simulateInterval=null; console.log('停止模拟 GPS'); }
-    }
-    document.getElementById('startBtn').onclick=startSimulation;
-    document.getElementById('stopBtn').onclick=stopSimulation;
 
-    // ---------- 本地轨迹更新 ----------
+    function stopSimulation(){ 
+      if(simulateInterval){ clearInterval(simulateInterval); simulateInterval = null; console.log('停止模拟 GPS'); }
+    }
+    document.getElementById('startBtn').onclick = startSimulation;
+    document.getElementById('stopBtn').onclick = stopSimulation;
+
+    // ---------- 更新地图轨迹 ----------
     function handleMQTTMessage(data){
-      const lng=parseFloat(data.lon);
-      const lat=parseFloat(data.lat);
-      if(!isNaN(lng)&&!isNaN(lat)){
-        const pos=[lng,lat];
+      const lng = parseFloat(data.lon);
+      const lat = parseFloat(data.lat);
+      if(!isNaN(lng) && !isNaN(lat)){
+        const pos = [lng, lat];
         marker.setPosition(pos);
-        map.setCenter(pos);
+        map.setCenter(pos); // 锁定视角在当前位置
         path.push(pos);
         polyline.setPath(path);
-        localStorage.setItem('gpsPath',JSON.stringify(path));
+        localStorage.setItem('gpsPath', JSON.stringify(path));
       }
     }
 
-    // ---------- 华为云 MQTT 配置 ----------
-    let client=null;
-
+    // ---------- 华为云 MQTT ----------
+    let client = null;
     const mqttConfig = {
       hostname: '5791e7b116.st1.iotda-device.cn-north-4.myhuaweicloud.com',
       port: 8883,
       clientId: '68bfe47d32771f177b5e1bf8_guiji-001_0_0_2025090908',
       username: '68bfe47d32771f177b5e1bf8_guiji-001',
-      password: 'YOUR_GENERATED_PASSWORD',  // 华为云生成的设备密码
+      password: 'YOUR_GENERATED_PASSWORD',  
       protocol: 'wss',
       topic: '/your/device/topic'
     };
@@ -166,7 +167,6 @@
         console.log('上传到华为云:', payload);
       }
     }
-
   </script>
 </body>
 </html>
