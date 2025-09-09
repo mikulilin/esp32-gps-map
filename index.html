@@ -19,7 +19,6 @@
       z-index: 999;
     }
     button { margin-right: 5px; }
-    #status { margin-top:5px; }
   </style>
 </head>
 <body>
@@ -28,9 +27,9 @@
     <button id="stopBtn">停止模拟</button>
     <button onclick="clearPath()">清除轨迹</button>
     <button onclick="connectMQTT()">连接华为云 MQTT</button>
-    <button onclick="disconnectMQTT()">断开连接</button>
-    <div id="status">MQTT状态: 未连接</div>
-    <div id="modelData">物模型数据: 无</div>
+    <button onclick="disconnectMQTT()">断开 MQTT</button>
+    <div>MQTT状态: <span id="mqttStatus">未连接</span></div>
+    <div>物模型数据: <span id="modelData">无</span></div>
   </div>
   <div id="mapContainer"></div>
 
@@ -105,7 +104,7 @@
         lng += (Math.random()-0.5)*0.0005;
         lat += (Math.random()-0.5)*0.0005;
         const msg = { lon: lng, lat: lat };
-        handleSimulationData(msg);  // 更新地图轨迹
+        handleGPS(msg);  // 更新地图轨迹
       }, 2000);
     }
 
@@ -115,13 +114,13 @@
     document.getElementById('startBtn').onclick = startSimulation;
     document.getElementById('stopBtn').onclick = stopSimulation;
 
-    function handleSimulationData(data){
+    function handleGPS(data){
       const lng = parseFloat(data.lon);
       const lat = parseFloat(data.lat);
       if(!isNaN(lng) && !isNaN(lat)){
         const pos = [lng, lat];
         marker.setPosition(pos);
-        map.setCenter(pos);
+        map.setCenter(pos); // 视角锁定在当前位置
         path.push(pos);
         polyline.setPath(path);
         localStorage.setItem('gpsPath', JSON.stringify(path));
@@ -135,7 +134,7 @@
       clientId: '68bfe47d32771f177b5e1bf8_guiji-001_0_0_2025090914',
       username: '68bfe47d32771f177b5e1bf8_guiji-001',
       password: '7c4546ca912f90c51aefe02f5cd58757cfab4789aac12ab63a6cb905cf7e16bb',
-      topic: '$oc/devices/68bfe47d32771f177b5e1bf8_guiji-001/sys/properties/set/#'
+      topic: '$oc/devices/68bfe47d32771f177b5e1bf8_guiji-001/sys/properties/report'
     };
 
     function connectMQTT(){
@@ -152,7 +151,7 @@
 
       client.on('connect',()=>{
         console.log('MQTT 已连接');
-        document.getElementById('status').innerText = 'MQTT状态: 已连接';
+        document.getElementById('mqttStatus').innerText = '已连接';
         client.subscribe(mqttConfig.topic, (err, granted)=>{
           if(err){
             console.error('订阅失败', err);
@@ -164,19 +163,25 @@
 
       client.on('error',err=>{
         console.error('MQTT 错误:',err);
-        document.getElementById('status').innerText = 'MQTT状态: 错误';
+        document.getElementById('mqttStatus').innerText = '错误';
       });
 
       client.on('close',()=>{
         console.log('MQTT 已断开');
-        document.getElementById('status').innerText = 'MQTT状态: 已断开';
+        document.getElementById('mqttStatus').innerText = '已断开';
       });
 
       client.on('message',(topic,message)=>{
         try{
-          const data = JSON.parse(message.toString());
-          handleModelData(data);
-        } catch(e){ console.error('解析消息出错', e);}
+          const obj = JSON.parse(message.toString());
+          if(obj.services && obj.services[0] && obj.services[0].properties){
+            const props = obj.services[0].properties;
+            document.getElementById('modelData').innerText = `经度:${props.longitude}, 纬度:${props.latitude}`;
+            handleGPS({lon: props.longitude, lat: props.latitude});
+          }
+        }catch(e){
+          console.warn('消息解析失败', e);
+        }
       });
     }
 
@@ -184,32 +189,10 @@
       if(client){
         client.end();
         client = null;
-        document.getElementById('status').innerText = 'MQTT状态: 手动断开';
-        console.log('已手动断开 MQTT');
+        document.getElementById('mqttStatus').innerText = '已断开';
       }
     }
 
-    function handleModelData(data){
-      try {
-        if(data.services && data.services.length>0 && data.services[0].properties){
-          const props = data.services[0].properties;
-          const lng = parseFloat(props.longitude);
-          const lat = parseFloat(props.latitude);
-          if(!isNaN(lng) && !isNaN(lat)){
-            const pos = [lng, lat];
-            marker.setPosition(pos);
-            map.setCenter(pos);
-            path.push(pos);
-            polyline.setPath(path);
-            localStorage.setItem('gpsPath', JSON.stringify(path));
-            // 显示物模型数据
-            document.getElementById('modelData').innerText = `物模型数据: 经度 ${lng.toFixed(6)}, 纬度 ${lat.toFixed(6)}`;
-          }
-        }
-      } catch(e){
-        console.error('解析物模型数据出错', e);
-      }
-    }
   </script>
 </body>
 </html>
