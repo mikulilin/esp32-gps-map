@@ -117,17 +117,29 @@
 
     // ---------- 更新地图轨迹与经纬度 ----------
     function handleMQTTMessage(data){
-      const lng=parseFloat(data.lon);
-      const lat=parseFloat(data.lat);
-      if(!isNaN(lng)&&!isNaN(lat)){
-        const pos=[lng,lat];
-        marker.setPosition(pos);
-        map.setCenter(pos);
-        path.push(pos);
-        polyline.setPath(path);
-        localStorage.setItem('gpsPath', JSON.stringify(path));
-        // 更新经纬度显示
-        document.getElementById('coords').innerText = `经纬度: ${lng.toFixed(6)} , ${lat.toFixed(6)}`;
+      try{
+        let lng, lat;
+        if(data.services && data.services.length>0){
+          // 华为云物模型格式
+          const props = data.services[0].properties;
+          lng = parseFloat(props.longitude);
+          lat = parseFloat(props.latitude);
+        } else {
+          // 模拟 GPS
+          lng = parseFloat(data.lon);
+          lat = parseFloat(data.lat);
+        }
+        if(!isNaN(lng) && !isNaN(lat)){
+          const pos=[lng,lat];
+          marker.setPosition(pos);
+          map.setCenter(pos);
+          path.push(pos);
+          polyline.setPath(path);
+          localStorage.setItem('gpsPath', JSON.stringify(path));
+          document.getElementById('coords').innerText = `经纬度: ${lng.toFixed(6)} , ${lat.toFixed(6)}`;
+        }
+      } catch(e){
+        console.error('解析消息失败', e);
       }
     }
 
@@ -176,15 +188,31 @@
       });
 
       client.on('message',(topic,message)=>{
-        try{ handleMQTTMessage(JSON.parse(message.toString())); }catch(e){}
+        try{ handleMQTTMessage(JSON.parse(message.toString())); }catch(e){ console.error(e); }
       });
     }
 
     function sendMQTT(data){
       if(client && client.connected){
-        const payload=JSON.stringify(data);
-        client.publish(mqttConfig.topic,payload);
-        console.log('上传到华为云:',payload);
+        let payload;
+        if(data.lon && data.lat){
+          // 模拟 GPS 格式
+          payload = {
+            services:[
+              {
+                service_id:'001',
+                properties:{
+                  longitude:data.lon,
+                  latitude:data.lat
+                }
+              }
+            ]
+          };
+        } else {
+          payload = data;
+        }
+        client.publish(mqttConfig.topic, JSON.stringify(payload));
+        console.log('上传到华为云:', payload);
       }
     }
   </script>
