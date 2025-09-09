@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GPS 前端模拟 + 华为云 MQTT 接口预留</title>
+  <title>GPS 模拟 + 停止/启动 + 华为云 MQTT 预留</title>
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
   <style>
     html, body { height:100%; margin:0; }
@@ -22,7 +22,8 @@
 </head>
 <body>
   <div id="controls">
-    <button onclick="simulateGPS()">模拟 GPS</button>
+    <button id="startBtn">启动模拟</button>
+    <button id="stopBtn">停止模拟</button>
     <button onclick="clearPath()">清除轨迹</button>
     <button onclick="connectMQTT()">连接 MQTT（预留）</button>
   </div>
@@ -73,9 +74,12 @@
     }
 
     // ---------- 模拟 GPS 数据 ----------
-    function simulateGPS() {
-      console.log('开始模拟 GPS 数据...');
-      setInterval(() => {
+    let simulateInterval = null;
+
+    function startSimulation() {
+      if (simulateInterval) return; // 已经在模拟中
+      console.log('启动模拟 GPS...');
+      simulateInterval = setInterval(() => {
         let lng = path.length > 0 ? path[path.length-1][0] : 113.12345;
         let lat = path.length > 0 ? path[path.length-1][1] : 23.12345;
         lng += (Math.random() - 0.5) * 0.001;
@@ -83,11 +87,20 @@
 
         const msg = { lon: lng, lat: lat };
         console.log('模拟 MQTT 数据:', msg);
-
-        // 调用统一的消息处理接口
         handleMQTTMessage(msg);
       }, 2000);
     }
+
+    function stopSimulation() {
+      if (simulateInterval) {
+        clearInterval(simulateInterval);
+        simulateInterval = null;
+        console.log('已停止模拟 GPS');
+      }
+    }
+
+    document.getElementById('startBtn').onclick = startSimulation;
+    document.getElementById('stopBtn').onclick = stopSimulation;
 
     // ---------- 统一处理“MQTT 消息” ----------
     function handleMQTTMessage(data) {
@@ -107,7 +120,6 @@
     function connectMQTT() {
       console.log('这里是华为云 MQTT 接口预留，你可以在此接入真实 MQTT 设备');
       /*
-      示例：
       const client = mqtt.connect('wss://hostname/mqtt', {
         clientId: 'xxx|securemode=3,signmethod=hmacsha1,timestamp=...',
         username: '设备ID&产品ID',
@@ -117,7 +129,6 @@
       client.on('message', (topic, message) => handleMQTTMessage(JSON.parse(message)));
       */
     }
-
   </script>
 </body>
 </html>
