@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GPS 模拟 + 华为云物模型实时显示</title>
+  <title>GPS 模拟 + 华为云物模型显示</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
   <style>
@@ -40,25 +40,25 @@
 let initialPos = [108.073, 34.280]; // 西北农林科技大学北校区
 const map = new AMap.Map('mapContainer', { zoom:16, center:initialPos });
 
-// ---------- 蓝色物模型轨迹 ----------
-let pathCloud = [];
-const polylineCloud = new AMap.Polyline({ path:[initialPos], strokeColor:"#0000FF", strokeWeight:4, map:map });
-const markerCloud = new AMap.Marker({ position:initialPos, map:map });
-
 // ---------- 红色模拟轨迹 ----------
 let pathSim = [];
 const polylineSim = new AMap.Polyline({ path:[initialPos], strokeColor:"#FF0000", strokeWeight:3, map:map });
 const markerSim = new AMap.Marker({ position:initialPos, map:map });
+
+// ---------- 蓝色云端轨迹 ----------
+let pathCloud = [];
+const polylineCloud = new AMap.Polyline({ path:[initialPos], strokeColor:"#0000FF", strokeWeight:4, map:map });
+const markerCloud = new AMap.Marker({ position:initialPos, map:map });
 
 // ---------- 浏览器定位 ----------
 if(navigator.geolocation){
   navigator.geolocation.getCurrentPosition(pos=>{
     const lng=pos.coords.longitude, lat=pos.coords.latitude;
     initialPos=[lng,lat];
-    markerCloud.setPosition(initialPos);
     markerSim.setPosition(initialPos);
+    markerCloud.setPosition(initialPos);
     map.setCenter(initialPos);
-  },err=>{ console.warn('定位失败，使用默认坐标', err); });
+  }, err=>{ console.warn('定位失败，使用默认坐标', err); });
 }
 
 // ---------- 模拟 GPS ----------
@@ -99,13 +99,12 @@ function handleMQTTMessage(data){
   }catch(e){ console.error('解析消息失败', e); }
 }
 
-// ---------- 华为云 MQTT ----------
+// ---------- 华为云 WSS MQTT ----------
 let client=null;
 const deviceId='68bfe47d32771f177b5e1bf8_guiji-001';
 const mqttConfig={
   hostname:'5791e7b116.st1.iotda-device.cn-north-4.myhuaweicloud.com',
-  clientId: deviceId+'_web_'+Date.now(),
-  username: deviceId,
+  username:deviceId,
   password:'f101fe12d0589b7c7f744849343af73a108bc1e9ad0ae5de451db50867f01acb'
 };
 let queryInterval=null;
@@ -114,24 +113,23 @@ function updateStatus(text){ document.getElementById('status').innerText=`状态
 
 function connectMQTT(){
   if(client && client.connected) return;
-  const url=`wss://${mqttConfig.hostname}/mqtt`; // 华为云 WSS 443 默认端口
+  const timestamp = Date.now();
+  const clientId = `${deviceId}|securemode=2,signmethod=hmacsha256,timestamp=${timestamp}|`; // 符合华为云 WSS
+  const url = `wss://${mqttConfig.hostname}/mqtt`;
   updateStatus('连接中...');
   try{
-    client=mqtt.connect(url,{
-      clientId:mqttConfig.clientId,
-      username:mqttConfig.username,
-      password:mqttConfig.password,
+    client = mqtt.connect(url,{
+      clientId: clientId,
+      username: mqttConfig.username,
+      password: mqttConfig.password,
       protocol:'wss',
       clean:true,
-      reconnectPeriod:0 // 禁止自动重连
+      reconnectPeriod:0 // 手动断开后不自动重连
     });
   }catch(e){ console.error('连接异常', e); updateStatus('连接异常'); return; }
 
   client.on('connect',()=>{
     updateStatus('已连接');
-    client.subscribe(`$oc/devices/${deviceId}/sys/properties/get/response/#`, err=>{
-      if(err){ console.error('订阅失败', err); updateStatus('订阅失败'); }
-    });
     startAutoQuery();
   });
   client.on('error',err=>{ console.error('MQTT 错误', err); updateStatus('连接错误'); });
@@ -143,21 +141,21 @@ function connectMQTT(){
 
 function disconnectMQTT(){
   if(client){
-    client.end(true,()=>{ client=null; updateStatus('已断开'); stopAutoQuery(); });
+    client.end(true, ()=>{ client=null; updateStatus('已断开'); stopAutoQuery(); });
   }
 }
 
-// ---------- 自动定时查询物模型属性 ----------
+// ---------- 定时查询物模型 ----------
 let requestCounter=0;
 function startAutoQuery(){
   if(!client || !client.connected) return;
   if(queryInterval) return;
-  queryInterval=setInterval(()=>{
-    const requestId='req_'+(++requestCounter);
-    const reqTopic=`$oc/devices/${deviceId}/sys/properties/get/request_id=${requestId}`;
-    const respTopic=`$oc/devices/${deviceId}/sys/properties/get/response/request_id=${requestId}`;
+  queryInterval = setInterval(()=>{
+    const requestId = 'req_' + (++requestCounter);
+    const reqTopic = `$oc/devices/${deviceId}/sys/properties/get/request_id=${requestId}`;
+    const respTopic = `$oc/devices/${deviceId}/sys/properties/get/response/request_id=${requestId}`;
     client.subscribe(respTopic, err=>{ if(err) console.error('订阅响应失败', err); });
-    client.publish(reqTopic,'{}'); // 空 JSON 请求平台属性
+    client.publish(reqTopic,'{}'); // 查询设备属性
   },2000);
 }
 function stopAutoQuery(){
