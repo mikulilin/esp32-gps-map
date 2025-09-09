@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GPS 模拟 + 停止/启动 + 华为云 MQTT 预留</title>
+  <title>GPS 模拟 + 浏览器定位 + 停止/启动 + 华为云 MQTT 预留</title>
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
   <style>
     html, body { height:100%; margin:0; }
@@ -30,14 +30,16 @@
   <div id="mapContainer"></div>
 
   <script>
-    // ---------- 高德地图初始化 ----------
+    // ---------- 默认坐标（定位失败回退：天安门） ----------
+    let initialPos = [116.397389, 39.908722];
+
     const map = new AMap.Map('mapContainer', {
       zoom: 15,
-      center: [113.12345, 23.12345]
+      center: initialPos
     });
 
     const marker = new AMap.Marker({
-      position: [113.12345, 23.12345],
+      position: initialPos,
       map: map
     });
 
@@ -52,7 +54,7 @@
     }
 
     const polyline = new AMap.Polyline({
-      path: path.length > 0 ? path : [[113.12345, 23.12345]],
+      path: path.length > 0 ? path : [initialPos],
       strokeColor: "#FF0000",
       strokeWeight: 4,
       map: map
@@ -63,12 +65,34 @@
       map.setCenter(path[path.length - 1]);
     }
 
+    // ---------- 尝试获取用户当前位置 ----------
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(position => {
+        const lng = position.coords.longitude;
+        const lat = position.coords.latitude;
+        initialPos = [lng, lat];
+
+        marker.setPosition(initialPos);
+        map.setCenter(initialPos);
+
+        // 如果没有历史轨迹，则从当前位置开始
+        if (path.length === 0) {
+          path.push(initialPos);
+          polyline.setPath(path);
+        }
+      }, error => {
+        console.warn('定位失败，使用默认坐标（天安门）', error);
+      });
+    } else {
+      console.warn('浏览器不支持定位，使用默认坐标（天安门）');
+    }
+
     // ---------- 清除轨迹 ----------
     function clearPath() {
       path = [];
-      polyline.setPath([[113.12345, 23.12345]]);
-      marker.setPosition([113.12345, 23.12345]);
-      map.setCenter([113.12345, 23.12345]);
+      polyline.setPath([initialPos]);
+      marker.setPosition(initialPos);
+      map.setCenter(initialPos);
       localStorage.removeItem('gpsPath');
       console.log('轨迹已清除');
     }
@@ -77,11 +101,11 @@
     let simulateInterval = null;
 
     function startSimulation() {
-      if (simulateInterval) return; // 已经在模拟中
+      if (simulateInterval) return;
       console.log('启动模拟 GPS...');
       simulateInterval = setInterval(() => {
-        let lng = path.length > 0 ? path[path.length-1][0] : 113.12345;
-        let lat = path.length > 0 ? path[path.length-1][1] : 23.12345;
+        let lng = path.length > 0 ? path[path.length-1][0] : initialPos[0];
+        let lat = path.length > 0 ? path[path.length-1][1] : initialPos[1];
         lng += (Math.random() - 0.5) * 0.001;
         lat += (Math.random() - 0.5) * 0.001;
 
