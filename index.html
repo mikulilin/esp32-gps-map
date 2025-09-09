@@ -3,7 +3,9 @@
 <head>
   <meta charset="utf-8">
   <title>GPS实时监控+轨迹</title>
+  <!-- 高德地图JS SDK -->
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
+  <!-- MQTT.js -->
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
     html, body {
@@ -38,7 +40,7 @@
     // ---------- 高德地图初始化 ----------
     const map = new AMap.Map('mapContainer', {
       zoom: 15,
-      center: [113.12345, 23.12345]
+      center: [113.12345, 23.12345] // 初始中心
     });
 
     const marker = new AMap.Marker({
@@ -46,7 +48,8 @@
       map: map
     });
 
-    let path = [];
+    // ---------- 初始化轨迹 ----------
+    let path = []; // 空轨迹数组
     const polyline = new AMap.Polyline({
       path: path,
       strokeColor: "#FF0000",
@@ -59,7 +62,7 @@
     const mqttOptions = {
       clientId: "68bfe47d32771f177b5e1bf8_guiji-001_0_0_2025090908",
       username: "68bfe47d32771f177b5e1bf8_guiji-001",
-      password: "591753c344ea181736aceffb9917a1bb",
+      password: "591753c344ea181736aceffb9917a1bb", // 注意浏览器 WSS 可能需要签名
       keepalive: 60,
       reconnectPeriod: 2000
     };
@@ -73,26 +76,35 @@
       });
     });
 
+    client.on('error', (err) => {
+      console.error('MQTT Error:', err);
+    });
+
+    // ---------- 处理 MQTT 消息 ----------
     client.on('message', (topic, message) => {
       try {
         const data = JSON.parse(message.toString());
         const lng = parseFloat(data.lon);
         const lat = parseFloat(data.lat);
 
-        marker.setPosition([lng, lat]);
-        map.setCenter([lng, lat]);
+        // ✅ 先检查经纬度是否合法
+        if (!isNaN(lng) && !isNaN(lat)) {
+            // 更新 Marker
+            marker.setPosition([lng, lat]);
+            map.setCenter([lng, lat]);
 
-        path.push([lng, lat]);
-        polyline.setPath(path);
+            // 更新轨迹
+            path.push([lng, lat]);
+            polyline.setPath(path);
+        } else {
+            console.warn('收到无效 GPS 数据:', data);
+        }
       } catch (e) {
         console.error('解析GPS数据出错:', e);
       }
     });
 
-    client.on('error', (err) => {
-      console.error('MQTT Error:', err);
-    });
-
+    // ---------- 前端发送控制命令 ----------
     function sendCommand(cmd) {
       const payload = JSON.stringify({ command: cmd });
       client.publish('/68bfe47d32771f177b5e1bf8_guiji-001/command', payload);
