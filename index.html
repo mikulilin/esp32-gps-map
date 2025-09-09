@@ -118,8 +118,8 @@ function connectMQTT(){
 
   client.on('connect',()=>{
     updateStatus('已连接', 'green');
-    // 订阅云端物模型属性下发
-    const propTopic = `$oc/devices/${mqttConfig.username}/sys/properties/set/#`;
+    // 订阅设备上报属性
+    const propTopic = `$oc/devices/${mqttConfig.username}/sys/properties/report`;
     client.subscribe(propTopic, err=>{
       if(err) console.error('订阅物模型失败:', err);
     });
