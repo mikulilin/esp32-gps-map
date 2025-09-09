@@ -2,16 +2,13 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GPS实时监控+轨迹</title>
-  <!-- 高德地图JS SDK -->
+  <title>GPS 实时监控 + 历史轨迹缓存</title>
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
-  <!-- MQTT.js -->
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
     html, body {
       height: 100%;
       margin: 0;
-      padding: 0;
     }
     #controls {
       position: absolute;
@@ -23,6 +20,14 @@
       border-radius: 5px;
       box-shadow: 0 0 5px rgba(0,0,0,0.3);
     }
+    #mqttStatus {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: red;
+      margin-left: 5px;
+    }
     #mapContainer {
       width: 100%;
       height: 100%;
@@ -33,6 +38,9 @@
   <div id="controls">
     <button onclick="sendCommand('START')">开始</button>
     <button onclick="sendCommand('STOP')">停止</button>
+    <button onclick="simulateGPS()">模拟 GPS 数据</button>
+    MQTT:
+    <div id="mqttStatus"></div>
   </div>
   <div id="mapContainer"></div>
 
@@ -40,7 +48,7 @@
     // ---------- 高德地图初始化 ----------
     const map = new AMap.Map('mapContainer', {
       zoom: 15,
-      center: [113.12345, 23.12345] // 初始中心
+      center: [113.12345, 23.12345]
     });
 
     const marker = new AMap.Marker({
@@ -49,7 +57,14 @@
     });
 
     // ---------- 初始化轨迹 ----------
-    let path = []; // 空轨迹数组
+    let path = [];
+
+    // 从 localStorage 加载历史轨迹
+    const savedPath = localStorage.getItem('gpsPath');
+    if (savedPath) {
+      path = JSON.parse(savedPath);
+    }
+
     const polyline = new AMap.Polyline({
       path: path,
       strokeColor: "#FF0000",
@@ -57,12 +72,23 @@
       map: map
     });
 
-    // ---------- 华为云 MQTT WSS 连接 ----------
+    if (path.length > 0) {
+      marker.setPosition(path[path.length - 1]);
+      map.setCenter(path[path.length - 1]);
+    }
+
+    // ---------- MQTT 连接状态显示 ----------
+    const mqttStatus = document.getElementById('mqttStatus');
+    function updateStatus(connected) {
+      mqttStatus.style.background = connected ? 'green' : 'red';
+    }
+
+    // ---------- 华为云 MQTT 连接 ----------
     const mqttHost = "wss://5791e7b116.st1.iotda-device.cn-north-4.myhuaweicloud.com/mqtt";
     const mqttOptions = {
       clientId: "68bfe47d32771f177b5e1bf8_guiji-001_0_0_2025090908",
       username: "68bfe47d32771f177b5e1bf8_guiji-001",
-      password: "591753c344ea181736aceffb9917a1bb", // 注意浏览器 WSS 可能需要签名
+      password: "591753c344ea181736aceffb9917a1bb",
       keepalive: 60,
       reconnectPeriod: 2000
     };
@@ -71,6 +97,7 @@
 
     client.on('connect', () => {
       console.log('MQTT connected!');
+      updateStatus(true);
       client.subscribe('/68bfe47d32771f177b5e1bf8_guiji-001/data', (err) => {
         if (!err) console.log('Subscribed to GPS data');
       });
@@ -78,6 +105,12 @@
 
     client.on('error', (err) => {
       console.error('MQTT Error:', err);
+      updateStatus(false);
+    });
+
+    client.on('close', () => {
+      console.warn('MQTT disconnected');
+      updateStatus(false);
     });
 
     // ---------- 处理 MQTT 消息 ----------
@@ -87,28 +120,42 @@
         const lng = parseFloat(data.lon);
         const lat = parseFloat(data.lat);
 
-        // ✅ 先检查经纬度是否合法
         if (!isNaN(lng) && !isNaN(lat)) {
-            // 更新 Marker
-            marker.setPosition([lng, lat]);
-            map.setCenter([lng, lat]);
+          const pos = [lng, lat];
+          marker.setPosition(pos);
+          map.setCenter(pos);
 
-            // 更新轨迹
-            path.push([lng, lat]);
-            polyline.setPath(path);
+          path.push(pos);
+          polyline.setPath(path);
+
+          // 保存到 localStorage
+          localStorage.setItem('gpsPath', JSON.stringify(path));
         } else {
-            console.warn('收到无效 GPS 数据:', data);
+          console.warn('收到无效 GPS 数据:', data);
         }
       } catch (e) {
         console.error('解析GPS数据出错:', e);
       }
     });
 
-    // ---------- 前端发送控制命令 ----------
+    // ---------- 发送控制命令 ----------
     function sendCommand(cmd) {
       const payload = JSON.stringify({ command: cmd });
       client.publish('/68bfe47d32771f177b5e1bf8_guiji-001/command', payload);
       console.log('Command sent:', payload);
+    }
+
+    // ---------- 模拟 GPS 数据 ----------
+    function simulateGPS() {
+      let lng = path.length > 0 ? path[path.length-1][0] : 113.12345;
+      let lat = path.length > 0 ? path[path.length-1][1] : 23.12345;
+      setInterval(() => {
+        lng += (Math.random() - 0.5) * 0.001;
+        lat += (Math.random() - 0.5) * 0.001;
+        const msg = JSON.stringify({ lon: lng, lat: lat });
+        console.log('模拟 GPS 数据:', msg);
+        client.emit('message', '/68bfe47d32771f177b5e1bf8_guiji-001/data', Buffer.from(msg));
+      }, 2000);
     }
   </script>
 </body>
