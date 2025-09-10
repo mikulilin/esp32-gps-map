@@ -99,7 +99,14 @@ function handleModelData(data){
 let ws=null;
 function connectWS(){
   if(ws && ws.readyState===WebSocket.OPEN) return;
-  ws=new WebSocket('ws://localhost:3001'); // 注意端口和 Node.js 保持一致
+
+  // 自动生成 WebSocket 地址，根据页面协议和端口
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const host = window.location.hostname;
+  const port = window.location.port || '3000'; // 默认端口3000，可根据 Node.js 修改
+  const wsUrl = `${protocol}://${host}:${port}`;
+
+  ws=new WebSocket(wsUrl);
   document.getElementById('status').innerText='WebSocket 状态: 连接中...';
 
   ws.onopen=()=>document.getElementById('status').innerText='WebSocket 状态: 已连接';
@@ -107,7 +114,6 @@ function connectWS(){
   ws.onmessage=event=>{
     try{ 
       const gpsData = JSON.parse(event.data);
-      // 避免覆盖模拟 GPS，可在接收到云端数据时单独处理
       handleModelData({ longitude: gpsData.lng || gpsData.longitude, latitude: gpsData.lat || gpsData.latitude });
     } catch(e){ console.warn('解析 WebSocket 数据失败', e); }
   };
