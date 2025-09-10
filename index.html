@@ -2,8 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GPS 模拟 + 浏览器定位 + 华为云 WSS MQTT</title>
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <title>GPS 模拟 + 浏览器定位 + Node WebSocket 实时接收</title>
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
   <style>
     html, body { height:100%; margin:0; }
@@ -27,153 +26,105 @@
     <button id="startBtn">启动模拟</button>
     <button id="stopBtn">停止模拟</button>
     <button onclick="clearPath()">清除轨迹</button>
-    <button onclick="connectMQTT()">连接华为云 MQTT</button>
-    <button onclick="disconnectMQTT()">断开连接</button>
-    <div id="status">MQTT 状态: 未连接</div>
+    <div id="status">WebSocket 状态: 未连接</div>
     <div id="modelData">物模型数据: 无</div>
   </div>
   <div id="mapContainer"></div>
 
-<script>
-let initialPos = [108.073, 34.280];
-const map = new AMap.Map('mapContainer', { zoom:16, center:initialPos });
-const marker = new AMap.Marker({ position: initialPos, map: map });
+  <script>
+    // ---------- 地图初始化 ----------
+    let initialPos = [108.073, 34.280];
+    const map = new AMap.Map('mapContainer', { zoom: 16, center: initialPos });
+    const marker = new AMap.Marker({ position: initialPos, map: map });
 
-// ---------- 初始化轨迹 ----------
-let path = [];
-const savedPath = localStorage.getItem('gpsPath');
-if(savedPath){
-  try{
-    const parsed = JSON.parse(savedPath);
-    path = parsed.filter(p=>Array.isArray(p)&&p.length===2&&!isNaN(p[0])&&!isNaN(p[1]));
-  }catch(e){ path=[]; }
-}
+    let path = [];
+    const savedPath = localStorage.getItem('gpsPath');
+    if (savedPath) {
+      try {
+        const parsed = JSON.parse(savedPath);
+        path = parsed.filter(p => Array.isArray(p) && p.length === 2 && !isNaN(p[0]) && !isNaN(p[1]));
+      } catch(e){ path = []; }
+    }
 
-const polyline = new AMap.Polyline({
-  path: path.length>0 ? path : [initialPos],
-  strokeColor:"#FF0000",
-  strokeWeight:4,
-  map:map
-});
-
-if(path.length>0){
-  marker.setPosition(path[path.length-1]);
-  map.setCenter(path[path.length-1]);
-}
-
-// ---------- 浏览器定位 ----------
-if(navigator.geolocation){
-  navigator.geolocation.getCurrentPosition(pos=>{
-    const lng = pos.coords.longitude;
-    const lat = pos.coords.latitude;
-    initialPos = [lng, lat];
-    marker.setPosition(initialPos);
-    map.setCenter(initialPos);
-    if(path.length===0){ path.push(initialPos); polyline.setPath(path); }
-  }, err=>{ console.warn('定位失败，使用默认坐标', err); });
-}
-
-// ---------- 清除轨迹 ----------
-function clearPath(){
-  path=[]; polyline.setPath([initialPos]); marker.setPosition(initialPos); map.setCenter(initialPos);
-  localStorage.removeItem('gpsPath');
-  console.log('轨迹已清除');
-}
-
-// ---------- 模拟 GPS ----------
-let simulateInterval = null;
-function startSimulation(){ 
-  if(simulateInterval) return;
-  console.log('启动模拟 GPS...');
-  simulateInterval = setInterval(()=>{
-    let lng = path.length>0 ? path[path.length-1][0] : initialPos[0];
-    let lat = path.length>0 ? path[path.length-1][1] : initialPos[1];
-    lng += (Math.random()-0.5)*0.0005;
-    lat += (Math.random()-0.5)*0.0005;
-    handleModelData({longitude:lng, latitude:lat});
-  }, 2000);
-}
-function stopSimulation(){ 
-  if(simulateInterval){ clearInterval(simulateInterval); simulateInterval=null; console.log('停止模拟 GPS'); }
-}
-document.getElementById('startBtn').onclick=startSimulation;
-document.getElementById('stopBtn').onclick=stopSimulation;
-
-// ---------- 更新地图轨迹 ----------
-function handleModelData(data){
-  const lng = parseFloat(data.longitude);
-  const lat = parseFloat(data.latitude);
-  if(!isNaN(lng)&&!isNaN(lat)){
-    const pos=[lng,lat];
-    marker.setPosition(pos);
-    map.setCenter(pos);
-    path.push(pos);
-    polyline.setPath(path);
-    localStorage.setItem('gpsPath', JSON.stringify(path));
-    document.getElementById('modelData').innerText=`物模型数据: 经度 ${lng.toFixed(6)}, 纬度 ${lat.toFixed(6)}`;
-  }
-}
-
-// ---------- 华为云 WSS MQTT ----------
-// 虚拟设备 guiji-002 订阅 ESP32 guiji-001 上报 Topic
-let client = null;
-const mqttConfig={
-  hostname:'5791e7b116.st1.iotda-device.cn-north-4.myhuaweicloud.com',
-  clientId:'68bfe47d32771f177b5e1bf8_guiji-002_0_0_2025091007',
-  username:'68bfe47d32771f177b5e1bf8_guiji-002',
-  password:'184d20b547d372cfaf8cdc14481d33168fcb898e6ddba2838e0253b853a00286',
-  topic:'$oc/devices/68bfe47d32771f177b5e1bf8_guiji-001/sys/properties/report' // 订阅 ESP32 上报 Topic
-};
-
-function connectMQTT(){
-  if(client && client.connected) return;
-  const url=`wss://${mqttConfig.hostname}:8883/mqtt`;
-  console.log('尝试连接 WSS URL:', url);
-  document.getElementById('status').innerText='MQTT 状态: 连接中...';
-
-  client = mqtt.connect(url,{
-    clientId:mqttConfig.clientId,
-    username:mqttConfig.username,
-    password:mqttConfig.password,
-    protocol:'wss',
-    clean:true,
-    reconnectPeriod:1000
-  });
-
-  client.on('connect', ()=>{
-    console.log('MQTT 已连接');
-    document.getElementById('status').innerText='MQTT 状态: 已连接';
-    client.subscribe(mqttConfig.topic,(err)=>{
-      if(err){ console.error('订阅失败:', err); } 
-      else{ console.log('订阅成功:', mqttConfig.topic); }
+    const polyline = new AMap.Polyline({
+      path: path.length > 0 ? path : [initialPos],
+      strokeColor:"#FF0000",
+      strokeWeight:4,
+      map: map
     });
-  });
 
-  client.on('error', err=>{
-    console.error('MQTT 错误:', err);
-    document.getElementById('status').innerText='MQTT 状态: 错误';
-  });
+    if(path.length>0){
+      marker.setPosition(path[path.length-1]);
+      map.setCenter(path[path.length-1]);
+    }
 
-  client.on('close', ()=>{
-    console.log('MQTT 已断开');
-    document.getElementById('status').innerText='MQTT 状态: 已断开';
-  });
+    // ---------- 浏览器定位 ----------
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(pos=>{
+        const lng = pos.coords.longitude;
+        const lat = pos.coords.latitude;
+        initialPos = [lng, lat];
+        marker.setPosition(initialPos);
+        map.setCenter(initialPos);
+        if(path.length===0){
+          path.push(initialPos);
+          polyline.setPath(path);
+        }
+      });
+    }
 
-  client.on('message',(topic,message)=>{
-    try{
-      const data=JSON.parse(message.toString());
-      handleModelData(data);
-    }catch(e){}
-  });
-}
+    // ---------- 清除轨迹 ----------
+    function clearPath(){
+      path=[];
+      polyline.setPath([initialPos]);
+      marker.setPosition(initialPos);
+      map.setCenter(initialPos);
+      localStorage.removeItem('gpsPath');
+      console.log('轨迹已清除');
+    }
 
-function disconnectMQTT(){
-  if(client && client.connected){
-    client.end();
-    console.log('手动断开 MQTT 连接');
-    document.getElementById('status').innerText='MQTT 状态: 已断开';
-  }
-}
-</script>
+    // ---------- 模拟 GPS ----------
+    let simulateInterval = null;
+    function startSimulation(){
+      if(simulateInterval) return;
+      simulateInterval = setInterval(()=>{
+        let lng = path.length>0 ? path[path.length-1][0] : initialPos[0];
+        let lat = path.length>0 ? path[path.length-1][1] : initialPos[1];
+        lng += (Math.random()-0.5)*0.0005;
+        lat += (Math.random()-0.5)*0.0005;
+        handleModelData({longitude: lng, latitude: lat});
+      }, 2000);
+    }
+    function stopSimulation(){
+      if(simulateInterval){ clearInterval(simulateInterval); simulateInterval=null; }
+    }
+    document.getElementById('startBtn').onclick = startSimulation;
+    document.getElementById('stopBtn').onclick = stopSimulation;
+
+    // ---------- 更新地图轨迹 ----------
+    function handleModelData(data){
+      const lng = parseFloat(data.longitude);
+      const lat = parseFloat(data.latitude);
+      if(!isNaN(lng) && !isNaN(lat)){
+        const pos = [lng, lat];
+        marker.setPosition(pos);
+        map.setCenter(pos);
+        path.push(pos);
+        polyline.setPath(path);
+        localStorage.setItem('gpsPath', JSON.stringify(path));
+        document.getElementById('modelData').innerText = `物模型数据: 经度 ${lng.toFixed(6)}, 纬度 ${lat.toFixed(6)}`;
+      }
+    }
+
+    // ---------- WebSocket 实时接收 ----------
+    const ws = new WebSocket('ws://localhost:3000'); // Node 服务地址
+    ws.onopen = () => { console.log('已连接 WebSocket'); document.getElementById('status').innerText='WebSocket 状态: 已连接'; };
+    ws.onmessage = event => {
+      try { const data = JSON.parse(event.data); handleModelData(data); }
+      catch(e){}
+    };
+    ws.onclose = () => { console.log('WebSocket 已断开'); document.getElementById('status').innerText='WebSocket 状态: 已断开'; };
+    ws.onerror = err => { console.error('WebSocket 错误:', err); document.getElementById('status').innerText='WebSocket 状态: 错误'; };
+  </script>
 </body>
 </html>
