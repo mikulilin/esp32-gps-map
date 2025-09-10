@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>可穿戴轨迹记录仪 + 华为云 MQTT</title>
+  <title>可穿戴轨迹记录仪（网页虚拟设备订阅ESP32）</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
   <style>
@@ -23,152 +23,154 @@
   </style>
 </head>
 <body>
-  <div id="controls">
-    <button id="startBtn">启动模拟</button>
-    <button id="stopBtn">停止模拟</button>
-    <button onclick="clearPath()">清除轨迹</button>
-    <button onclick="connectMQTT()">连接华为云 MQTT</button>
-    <button onclick="disconnectMQTT()">断开连接</button>
-    <div id="status">MQTT 状态: 未连接</div>
-    <div id="modelData">物模型数据: 无</div>
-  </div>
-  <div id="mapContainer"></div>
+<div id="controls">
+  <button id="startBtn">启动模拟</button>
+  <button id="stopBtn">停止模拟</button>
+  <button onclick="clearPath()">清除轨迹</button>
+  <button onclick="connectMQTT()">连接华为云 MQTT</button>
+  <button onclick="disconnectMQTT()">断开连接</button>
+  <div id="status">MQTT 状态: 未连接</div>
+  <div id="modelData">物模型数据: 无</div>
+</div>
+<div id="mapContainer"></div>
 
-  <script>
-    // ---------- 初始化地图 ----------
-    let initialPos = [108.073, 34.280]; // 默认位置
-    const map = new AMap.Map('mapContainer', { zoom: 16, center: initialPos });
-    const marker = new AMap.Marker({ position: initialPos, map: map });
-    let path = [];
-    let startMarker = null;
-    let endMarker = null;
+<script>
+  // ---------- 初始化地图 ----------
+  let initialPos = [108.073, 34.280]; // 默认位置
+  const map = new AMap.Map('mapContainer', { zoom: 16, center: initialPos });
+  const marker = new AMap.Marker({ position: initialPos, map: map });
+  let path = [];
+  let startMarker = null;
+  let endMarker = null;
 
-    // 恢复本地存储轨迹
-    const savedPath = localStorage.getItem('gpsPath');
-    if(savedPath){
+  // ---------- 恢复本地轨迹 ----------
+  const savedPath = localStorage.getItem('gpsPath');
+  if(savedPath){
+    try{
+      const parsed = JSON.parse(savedPath);
+      path = parsed.filter(p => Array.isArray(p) && p.length===2 && !isNaN(p[0]) && !isNaN(p[1]));
+    } catch(e){ path = []; }
+  }
+  const polyline = new AMap.Polyline({ path: path.length>0?path:[initialPos], strokeColor:"#FF0000", strokeWeight:4, map: map });
+  if(path.length>0){
+    marker.setPosition(path[path.length-1]);
+    map.setCenter(path[path.length-1]);
+    startMarker = new AMap.Marker({ position: path[0], title:'起点', icon:'https://webapi.amap.com/theme/v1.3/markers/n/start.png', map: map });
+    endMarker = new AMap.Marker({ position: path[path.length-1], title:'终点', icon:'https://webapi.amap.com/theme/v1.3/markers/n/end.png', map: map });
+  }
+
+  // ---------- 浏览器定位 ----------
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const lng = pos.coords.longitude;
+      const lat = pos.coords.latitude;
+      initialPos = [lng, lat];
+      marker.setPosition(initialPos);
+      map.setCenter(initialPos);
+      if(path.length===0){ path.push(initialPos); polyline.setPath(path); }
+    }, err=>{ console.warn('定位失败，使用默认位置', err); });
+  }
+
+  // ---------- 清除轨迹 ----------
+  function clearPath(){
+    path=[]; polyline.setPath([initialPos]); marker.setPosition(initialPos); map.setCenter(initialPos);
+    if(startMarker){ startMarker.setMap(null); startMarker=null; }
+    if(endMarker){ endMarker.setMap(null); endMarker=null; }
+    localStorage.removeItem('gpsPath'); console.log('轨迹已清除');
+  }
+
+  // ---------- 模拟 GPS ----------
+  let simulateInterval = null;
+  function startSimulation(){ 
+    if(simulateInterval) return;
+    simulateInterval = setInterval(()=>{
+      let lng = path.length>0 ? path[path.length-1][0] : initialPos[0];
+      let lat = path.length>0 ? path[path.length-1][1] : initialPos[1];
+      handleModelData({longitude: lng + (Math.random()-0.5)*0.0005, latitude: lat + (Math.random()-0.5)*0.0005});
+    }, 2000);
+    console.log('启动模拟 GPS');
+  }
+  function stopSimulation(){ if(simulateInterval){ clearInterval(simulateInterval); simulateInterval=null; console.log('停止模拟 GPS'); } }
+  document.getElementById('startBtn').onclick = startSimulation;
+  document.getElementById('stopBtn').onclick = stopSimulation;
+
+  // ---------- 处理地图轨迹 ----------
+  function handleModelData(data){
+    const pos = [parseFloat(data.longitude), parseFloat(data.latitude)];
+    if(isNaN(pos[0])||isNaN(pos[1])) return;
+
+    path.push(pos);
+    polyline.setPath(path);
+    marker.setPosition(pos);
+
+    // 起点/终点标记
+    if(!startMarker) startMarker = new AMap.Marker({ position: pos, title:'起点', icon:'https://webapi.amap.com/theme/v1.3/markers/n/start.png', map: map });
+    if(endMarker) endMarker.setPosition(pos);
+    else endMarker = new AMap.Marker({ position: pos, title:'终点', icon:'https://webapi.amap.com/theme/v1.3/markers/n/end.png', map: map });
+
+    // 自动缩放显示轨迹
+    if(path.length>1){
+      const bounds = new AMap.Bounds(path[0], path[0]);
+      path.forEach(p=>bounds.extend(p));
+      map.setBounds(bounds);
+    } else map.setCenter(pos);
+
+    document.getElementById('modelData').innerText = `物模型数据: 经度 ${pos[0].toFixed(6)}, 纬度 ${pos[1].toFixed(6)}`;
+    localStorage.setItem('gpsPath', JSON.stringify(path));
+  }
+
+  // ---------- 华为云 MQTTS (网页虚拟设备) ----------
+  let client = null;
+  const mqttConfig = {
+    hostname: '5791e7b116.st1.iotda-device.cn-north-4.myhuaweicloud.com',
+    port: 8883,
+    clientId: '68bfe47d32771f177b5e1bf8_guiji-002_0_0_2025091003',
+    username: '68bfe47d32771f177b5e1bf8_guiji-002',
+    password: 'ed5d392e83c2c73ca198e117cbd78600e3454b0d2352fb9962e8bad4a0e499ec',
+    subscribeTopic: '$oc/devices/68bfe47d32771f177b5e1bf8_guiji-001/sys/properties/report'
+  };
+
+  function connectMQTT(){
+    if(client && client.connected) return;
+    const url = `wss://${mqttConfig.hostname}/mqtt`; // 注意MQQT over TLS/SSL，如果浏览器支持 WSS 可使用 wss
+    document.getElementById('status').innerText='MQTT 状态: 连接中...';
+
+    client = mqtt.connect(url, {
+      clientId: mqttConfig.clientId,
+      username: mqttConfig.username,
+      password: mqttConfig.password,
+      protocol: 'wss',
+      clean: true,
+      reconnectPeriod: 5000 // 自动重连
+    });
+
+    client.on('connect', ()=>{
+      document.getElementById('status').innerText='MQTT 状态: 已连接';
+      client.subscribe(mqttConfig.subscribeTopic, err=>{
+        if(err) console.error('订阅失败:', err);
+        else console.log('成功订阅ESP32上报数据');
+      });
+    });
+
+    client.on('error', err=>{ console.error(err); document.getElementById('status').innerText='MQTT 状态: 错误'; });
+    client.on('close', ()=>{ document.getElementById('status').innerText='MQTT 状态: 已断开'; });
+
+    client.on('message', (topic, message)=>{
       try{
-        const parsed = JSON.parse(savedPath);
-        path = parsed.filter(p => Array.isArray(p) && p.length===2 && !isNaN(p[0]) && !isNaN(p[1]));
-      } catch(e){ path = []; }
-    }
-    const polyline = new AMap.Polyline({ path: path.length>0?path:[initialPos], strokeColor:"#FF0000", strokeWeight:4, map: map });
-    if(path.length>0){
-      marker.setPosition(path[path.length-1]);
-      map.setCenter(path[path.length-1]);
-      startMarker = new AMap.Marker({ position: path[0], title:'起点', icon:'https://webapi.amap.com/theme/v1.3/markers/n/start.png', map: map });
-      endMarker = new AMap.Marker({ position: path[path.length-1], title:'终点', icon:'https://webapi.amap.com/theme/v1.3/markers/n/end.png', map: map });
-    }
+        const data = JSON.parse(message.toString());
+        const service = data.services && data.services[0];
+        if(service && service.properties){
+          const lng = service.properties.longitude;
+          const lat = service.properties.latitude;
+          handleModelData({longitude: lng, latitude: lat});
+        }
+      } catch(e){ console.error('解析消息失败', e); }
+    });
+  }
 
-    // ---------- 浏览器定位 ----------
-    if(navigator.geolocation){
-      navigator.geolocation.getCurrentPosition(pos=>{
-        const lng = pos.coords.longitude;
-        const lat = pos.coords.latitude;
-        initialPos = [lng, lat];
-        marker.setPosition(initialPos);
-        map.setCenter(initialPos);
-        if(path.length===0){ path.push(initialPos); polyline.setPath(path); }
-      }, err=>{ console.warn('定位失败，使用默认位置', err); });
-    }
-
-    // ---------- 清除轨迹 ----------
-    function clearPath(){
-      path=[]; polyline.setPath([initialPos]); marker.setPosition(initialPos); map.setCenter(initialPos);
-      if(startMarker){ startMarker.setMap(null); startMarker=null; }
-      if(endMarker){ endMarker.setMap(null); endMarker=null; }
-      localStorage.removeItem('gpsPath'); console.log('轨迹已清除');
-    }
-
-    // ---------- 模拟 GPS ----------
-    let simulateInterval = null;
-    function startSimulation(){ 
-      if(simulateInterval) return;
-      simulateInterval = setInterval(()=>{
-        let lng = path.length>0 ? path[path.length-1][0] : initialPos[0];
-        let lat = path.length>0 ? path[path.length-1][1] : initialPos[1];
-        lng += (Math.random()-0.5)*0.0005;
-        lat += (Math.random()-0.5)*0.0005;
-        handleModelData({longitude: lng, latitude: lat});
-      }, 2000);
-      console.log('启动模拟 GPS');
-    }
-    function stopSimulation(){ if(simulateInterval){ clearInterval(simulateInterval); simulateInterval=null; console.log('停止模拟 GPS'); } }
-    document.getElementById('startBtn').onclick = startSimulation;
-    document.getElementById('stopBtn').onclick = stopSimulation;
-
-    // ---------- 处理地图轨迹 ----------
-    function handleModelData(data){
-      const pos = [parseFloat(data.longitude), parseFloat(data.latitude)];
-      if(isNaN(pos[0])||isNaN(pos[1])) return;
-
-      path.push(pos);
-      polyline.setPath(path);
-      marker.setPosition(pos);
-
-      // 起点/终点标记
-      if(!startMarker) startMarker = new AMap.Marker({ position: pos, title:'起点', icon:'https://webapi.amap.com/theme/v1.3/markers/n/start.png', map: map });
-      if(endMarker) endMarker.setPosition(pos);
-      else endMarker = new AMap.Marker({ position: pos, title:'终点', icon:'https://webapi.amap.com/theme/v1.3/markers/n/end.png', map: map });
-
-      // 自动缩放显示轨迹
-      if(path.length>1){
-        const bounds = new AMap.Bounds(path[0], path[0]);
-        path.forEach(p=>bounds.extend(p));
-        map.setBounds(bounds);
-      } else map.setCenter(pos);
-
-      // 更新显示数据
-      document.getElementById('modelData').innerText = `物模型数据: 经度 ${pos[0].toFixed(6)}, 纬度 ${pos[1].toFixed(6)}`;
-
-      localStorage.setItem('gpsPath', JSON.stringify(path));
-    }
-
-    // ---------- 华为云 WSS MQTT ----------
-    let client = null;
-    const mqttConfig = {
-      hostname: '5791e7b116.st1.iotda-device.cn-north-4.myhuaweicloud.com',
-      clientId: 'web_' + Math.random().toString(16).substr(2,8),
-      username: '68bfe47d32771f177b5e1bf8_guiji-001',
-      password: '7c4546ca912f90c51aefe02f5cd58757cfab4789aac12ab63a6cb905cf7e16bb',
-      topic: '$oc/devices/68bfe47d32771f177b5e1bf8_guiji-001/sys/properties/report' // 上报主题
-    };
-
-    function connectMQTT(){
-      if(client && client.connected) return;
-      const url = `wss://${mqttConfig.hostname}/mqtt`;
-      document.getElementById('status').innerText='MQTT 状态: 连接中...';
-
-      client = mqtt.connect(url, {
-        clientId: mqttConfig.clientId,
-        username: mqttConfig.username,
-        password: mqttConfig.password,
-        protocol: 'wss',
-        clean: true
-      });
-
-      client.on('connect', ()=>{
-        document.getElementById('status').innerText='MQTT 状态: 已连接';
-        client.subscribe(mqttConfig.topic, (err)=>{
-          if(err) console.error('订阅失败:', err);
-        });
-      });
-
-      client.on('error', err=>{ console.error(err); document.getElementById('status').innerText='MQTT 状态: 错误'; });
-      client.on('close', ()=>{ document.getElementById('status').innerText='MQTT 状态: 已断开'; });
-      client.on('message', (topic, message)=>{
-        try{
-          const data = JSON.parse(message.toString());
-          const service = data.services && data.services[0];
-          if(service && service.properties){
-            handleModelData({longitude: service.properties.longitude, latitude: service.properties.latitude});
-          }
-        } catch(e){ console.error(e); }
-      });
-    }
-
-    function disconnectMQTT(){
-      if(client && client.connected){ client.end(); document.getElementById('status').innerText='MQTT 状态: 已断开'; console.log('手动断开 MQTT'); }
-    }
-  </script>
+  function disconnectMQTT(){
+    if(client && client.connected){ client.end(); document.getElementById('status').innerText='MQTT 状态: 已断开'; console.log('手动断开 MQTT'); }
+  }
+</script>
 </body>
 </html>
