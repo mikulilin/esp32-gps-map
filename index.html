@@ -88,7 +88,9 @@ function handleModelData(data){
   if(!isNaN(lng) && !isNaN(lat)){
     const pos=[lng,lat];
     marker.setPosition(pos); map.setCenter(pos);
-    path.push(pos); polyline.setPath(path); localStorage.setItem('gpsPath', JSON.stringify(path));
+    path.push(pos); 
+    polyline.setPath(path); 
+    localStorage.setItem('gpsPath', JSON.stringify(path));
     document.getElementById('modelData').innerText = `物模型数据: 经度 ${lng.toFixed(6)}, 纬度 ${lat.toFixed(6)}`;
   }
 }
@@ -97,12 +99,19 @@ function handleModelData(data){
 let ws=null;
 function connectWS(){
   if(ws && ws.readyState===WebSocket.OPEN) return;
-  ws=new WebSocket('ws://localhost:3000');
+  ws=new WebSocket('ws://localhost:3001'); // 注意端口和 Node.js 保持一致
   document.getElementById('status').innerText='WebSocket 状态: 连接中...';
+
   ws.onopen=()=>document.getElementById('status').innerText='WebSocket 状态: 已连接';
+
   ws.onmessage=event=>{
-    try{ handleModelData(JSON.parse(event.data)); } catch(e){}
+    try{ 
+      const gpsData = JSON.parse(event.data);
+      // 避免覆盖模拟 GPS，可在接收到云端数据时单独处理
+      handleModelData({ longitude: gpsData.lng || gpsData.longitude, latitude: gpsData.lat || gpsData.latitude });
+    } catch(e){ console.warn('解析 WebSocket 数据失败', e); }
   };
+
   ws.onclose=()=>document.getElementById('status').innerText='WebSocket 状态: 已断开';
 }
 function disconnectWS(){ if(ws) ws.close(); }
