@@ -1,128 +1,133 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8">
-<title>GPS 模拟 + 浏览器定位 + Node.js WebSocket</title>
-<script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
-<style>
-html, body { height:100%; margin:0; }
-#mapContainer { width:100%; height:100%; }
-#controls {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  background: rgba(255,255,255,0.9);
-  padding: 5px 10px;
-  border-radius: 5px;
-  box-shadow: 0 0 5px rgba(0,0,0,0.3);
-  z-index: 999;
-}
-button { margin-right: 5px; margin-bottom: 5px; }
-#status { margin-top: 5px; font-weight: bold; }
-</style>
+  <meta charset="utf-8">
+  <title>NB-IoT 轨迹 + 浏览器定位 + AGC SDK</title>
+  <script src="https://websdk.agconnect.huawei.com/agconnect-web-sdk.js"></script>
+  <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
+  <style>
+    html, body { height:100%; margin:0; }
+    #mapContainer { width:100%; height:100%; }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255,255,255,0.9);
+      padding: 5px 10px;
+      border-radius: 5px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+      z-index: 999;
+    }
+    button { margin-right: 5px; margin-bottom: 5px; }
+    #status { margin-top: 5px; font-weight: bold; }
+  </style>
 </head>
 <body>
-<div id="controls">
-  <button id="startBtn">启动模拟</button>
-  <button id="stopBtn">停止模拟</button>
-  <button onclick="clearPath()">清除轨迹</button>
-  <button id="connectBtn">连接 WebSocket</button>
-  <button id="disconnectBtn">断开 WebSocket</button>
-  <div id="status">WebSocket 状态: 未连接</div>
-  <div id="modelData">物模型数据: 无</div>
-</div>
-<div id="mapContainer"></div>
+  <div id="controls">
+    <button id="startBtn">启动模拟</button>
+    <button id="stopBtn">停止模拟</button>
+    <button onclick="clearPath()">清除轨迹</button>
+    <div id="status">数据源: 未连接</div>
+    <div id="modelData">物模型数据: 无</div>
+  </div>
+  <div id="mapContainer"></div>
 
-<script>
-let initialPos = [108.073, 34.280];
-const map = new AMap.Map('mapContainer', { zoom:16, center:initialPos });
-const marker = new AMap.Marker({ position: initialPos, map: map });
+  <script>
+    // ---------------- 初始化地图 ----------------
+    let initialPos = [108.073, 34.280]; // 默认坐标
+    const map = new AMap.Map('mapContainer', { zoom:16, center: initialPos });
+    const marker = new AMap.Marker({ position: initialPos, map: map });
 
-// ---------- 初始化轨迹 ----------
-let path = [];
-const savedPath = localStorage.getItem('gpsPath');
-if(savedPath) {
-  try{
-    const parsed = JSON.parse(savedPath);
-    path = parsed.filter(p => Array.isArray(p) && p.length===2 && !isNaN(p[0]) && !isNaN(p[1]));
-  } catch(e){ path=[]; }
-}
-const polyline = new AMap.Polyline({ path: path.length>0?path:[initialPos], strokeColor:"#FF0000", strokeWeight:4, map:map });
-if(path.length>0){ marker.setPosition(path[path.length-1]); map.setCenter(path[path.length-1]); }
+    let path = [];
+    const savedPath = localStorage.getItem('gpsPath');
+    if(savedPath){
+      try { path = JSON.parse(savedPath); } catch(e){ path=[]; }
+    }
 
-// ---------- 浏览器定位 ----------
-if(navigator.geolocation){
-  navigator.geolocation.getCurrentPosition(pos=>{
-    initialPos = [pos.coords.longitude, pos.coords.latitude];
-    marker.setPosition(initialPos);
-    map.setCenter(initialPos);
-    if(path.length===0){ path.push(initialPos); polyline.setPath(path); }
-  }, err=>console.warn('定位失败', err));
-}
+    const polyline = new AMap.Polyline({
+      path: path.length>0 ? path : [initialPos],
+      strokeColor:"#FF0000",
+      strokeWeight:4,
+      map:map
+    });
 
-// ---------- 清除轨迹 ----------
-function clearPath(){
-  path=[]; polyline.setPath([initialPos]); marker.setPosition(initialPos); map.setCenter(initialPos);
-  localStorage.removeItem('gpsPath'); console.log('轨迹已清除');
-}
+    if(path.length>0){
+      marker.setPosition(path[path.length-1]);
+      map.setCenter(path[path.length-1]);
+    }
 
-// ---------- 模拟 GPS ----------
-let simulateInterval = null;
-function startSimulation(){ 
-  if(simulateInterval) return;
-  simulateInterval = setInterval(()=>{
-    let lng = path.length>0?path[path.length-1][0]:initialPos[0];
-    let lat = path.length>0?path[path.length-1][1]:initialPos[1];
-    lng += (Math.random()-0.5)*0.0005;
-    lat += (Math.random()-0.5)*0.0005;
-    handleModelData({ longitude: lng, latitude: lat });
-  }, 2000);
-}
-function stopSimulation(){ if(simulateInterval){ clearInterval(simulateInterval); simulateInterval=null; } }
-document.getElementById('startBtn').onclick=startSimulation;
-document.getElementById('stopBtn').onclick=stopSimulation;
+    // 浏览器定位
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(pos=>{
+        const lng = pos.coords.longitude;
+        const lat = pos.coords.latitude;
+        initialPos = [lng, lat];
+        marker.setPosition(initialPos);
+        map.setCenter(initialPos);
+        if(path.length===0){ path.push(initialPos); polyline.setPath(path); }
+      });
+    }
 
-// ---------- 更新地图轨迹 ----------
-function handleModelData(data){
-  const lng=parseFloat(data.longitude), lat=parseFloat(data.latitude);
-  if(!isNaN(lng) && !isNaN(lat)){
-    const pos=[lng,lat];
-    marker.setPosition(pos); map.setCenter(pos);
-    path.push(pos); 
-    polyline.setPath(path); 
-    localStorage.setItem('gpsPath', JSON.stringify(path));
-    document.getElementById('modelData').innerText = `物模型数据: 经度 ${lng.toFixed(6)}, 纬度 ${lat.toFixed(6)}`;
-  }
-}
+    // 清除轨迹
+    function clearPath(){
+      path=[]; polyline.setPath([initialPos]);
+      marker.setPosition(initialPos); map.setCenter(initialPos);
+      localStorage.removeItem('gpsPath');
+    }
 
-// ---------- WebSocket ----------
-let ws=null;
-function connectWS(){
-  if(ws && ws.readyState===WebSocket.OPEN) return;
+    // ---------------- 模拟 GPS ----------------
+    let simulateInterval = null;
+    function startSimulation(){
+      if(simulateInterval) return;
+      simulateInterval = setInterval(()=>{
+        let lng = path.length>0 ? path[path.length-1][0] : initialPos[0];
+        let lat = path.length>0 ? path[path.length-1][1] : initialPos[1];
+        lng += (Math.random()-0.5)*0.0005;
+        lat += (Math.random()-0.5)*0.0005;
+        handleModelData({longitude: lng, latitude: lat});
+      }, 2000);
+      document.getElementById('status').innerText = '数据源: 模拟 GPS';
+    }
+    function stopSimulation(){ 
+      if(simulateInterval){ clearInterval(simulateInterval); simulateInterval=null; }
+    }
+    document.getElementById('startBtn').onclick=startSimulation;
+    document.getElementById('stopBtn').onclick=stopSimulation;
 
-  // 自动生成 WebSocket 地址，根据页面协议和端口
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const host = window.location.hostname;
-  const port = window.location.port || '3000'; // 默认端口3000，可根据 Node.js 修改
-  const wsUrl = `${protocol}://${host}:${port}`;
+    // ---------------- 更新地图轨迹 ----------------
+    function handleModelData(data){
+      const lng=parseFloat(data.longitude);
+      const lat=parseFloat(data.latitude);
+      if(!isNaN(lng) && !isNaN(lat)){
+        const pos=[lng, lat];
+        marker.setPosition(pos);
+        map.setCenter(pos);
+        path.push(pos);
+        polyline.setPath(path);
+        localStorage.setItem('gpsPath', JSON.stringify(path));
+        document.getElementById('modelData').innerText = `物模型数据: 经度 ${lng.toFixed(6)}, 纬度 ${lat.toFixed(6)}`;
+      }
+    }
 
-  ws=new WebSocket(wsUrl);
-  document.getElementById('status').innerText='WebSocket 状态: 连接中...';
+    // ---------------- AGC SDK ----------------
+    var agConnectConfig = 
+    {"agcgw_all":{"SG":"connect-dra.dbankcloud.cn","SG_back":"connect-dra.hispace.hicloud.com","CN":"connect-drcn.dbankcloud.cn","CN_back":"connect-drcn.hispace.hicloud.com","RU":"connect-drru.hispace.dbankcloud.ru","RU_back":"connect-drru.hispace.dbankcloud.cn","DE":"connect-dre.dbankcloud.cn","DE_back":"connect-dre.hispace.hicloud.com"},"websocketgw_all":{"SG":"connect-ws-dra.hispace.dbankcloud.cn","SG_back":"connect-ws-dra.hispace.dbankcloud.com","CN":"connect-ws-drcn.hispace.dbankcloud.cn","CN_back":"connect-ws-drcn.hispace.dbankcloud.com","RU":"connect-ws-drru.hispace.dbankcloud.ru","RU_back":"connect-ws-drru.hispace.dbankcloud.cn","DE":"connect-ws-dre.hispace.dbankcloud.cn","DE_back":"connect-ws-dre.hispace.dbankcloud.com"},"client":{"cp_id":"10086000893577194","product_id":"461323198430416158","client_id":"1772358902709541760","client_secret":"A1D79AD704620F0C758E0ACB8BF146B7762736BC70F884E7DAF8294A1EDD31FA","project_id":"461323198430416158","app_id":"245150415728747952","api_key":"DgEDANi9U4EG9MMr/5PBc2TaJLfTA6PYMUM2D6aiVqBrIPL9YqDJn+TQlsr/YHT/kqZyS7GDFizHe5YsBt87k1QuwcAHnzaEkRCX1g=="},"oauth_client":{"client_id":"115254993","client_type":7},"app_info":{"app_id":"245150415728747952"},"configuration_version":"3.0"};
 
-  ws.onopen=()=>document.getElementById('status').innerText='WebSocket 状态: 已连接';
+    AGConnect.init(agConnectConfig);
 
-  ws.onmessage=event=>{
-    try{ 
-      const gpsData = JSON.parse(event.data);
-      handleModelData({ longitude: gpsData.lng || gpsData.longitude, latitude: gpsData.lat || gpsData.latitude });
-    } catch(e){ console.warn('解析 WebSocket 数据失败', e); }
-  };
+    async function fetchShadowViaSDK(){
+      try{
+        const data = await AGConnect.IoTDA.Device.getDeviceShadow("68bfe47d32771f177b5e1bf8_guiji-001");
+        handleModelData(data.shadow[0].reported.properties);
+        document.getElementById('status').innerText='数据源: AGC SDK';
+      }catch(e){
+        console.error('SDK 获取失败', e);
+      }
+    }
 
-  ws.onclose=()=>document.getElementById('status').innerText='WebSocket 状态: 已断开';
-}
-function disconnectWS(){ if(ws) ws.close(); }
-document.getElementById('connectBtn').onclick=connectWS;
-document.getElementById('disconnectBtn').onclick=disconnectWS;
-</script>
+    // 每5秒刷新设备影子
+    setInterval(fetchShadowViaSDK, 5000);
+
+  </script>
 </body>
 </html>
