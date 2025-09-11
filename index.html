@@ -1,152 +1,109 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh">
 <head>
-  <meta charset="utf-8">
-  <title>NB-IoT 实时轨迹 - AGC Web SDK</title>
-  <!-- 使用官方 CDN 加载 AGC Web SDK -->
-  <script src="https://websdk.agconnect.huawei.com/agconnect-web-sdk-1.8.0.js"></script>
-  <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
-  <style>
-    html, body { height:100%; margin:0; }
-    #mapContainer { width:100%; height:100%; }
-    #controls {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(255,255,255,0.9);
-      padding: 5px 10px;
-      border-radius: 5px;
-      box-shadow: 0 0 5px rgba(0,0,0,0.3);
-      z-index: 999;
-    }
-    button { margin-right: 5px; margin-bottom: 5px; }
-    #status { margin-top: 5px; font-weight: bold; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>华为云设备影子 + 高德地图轨迹</title>
+<script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+<style>
+  html, body { height:100%; margin:0; }
+  #mapContainer { width:100%; height:100%; }
+  #controls {
+    position: absolute;
+    top: 10px; left: 10px;
+    background: rgba(255,255,255,0.9);
+    padding: 10px; border-radius:5px;
+    z-index: 999;
+  }
+  #controls div { margin-bottom:5px; }
+</style>
 </head>
 <body>
-  <div id="controls">
-    <button id="startBtn">启动模拟</button>
-    <button id="stopBtn">停止模拟</button>
-    <button onclick="clearPath()">清除轨迹</button>
-    <div id="status">数据源: 未连接</div>
-    <div id="modelData">物模型数据: 无</div>
-  </div>
-  <div id="mapContainer"></div>
+<div id="mapContainer"></div>
+<div id="controls">
+  <div id="longitude">经度: --</div>
+  <div id="latitude">纬度: --</div>
+  <div id="time">时间: --</div>
+  <button onclick="clearPath()">清除轨迹</button>
+</div>
 
-  <script>
-    // ---------- 地图初始化 ----------
-    let initialPos = [108.073, 34.280];
-    const map = new AMap.Map('mapContainer', { zoom:16, center: initialPos });
-    const marker = new AMap.Marker({ position: initialPos, map: map });
+<script>
+  // ---------- 配置AK/SK和设备信息 ----------
+  const AK = "gpsguiji";
+  const SK = "123456guiji";
+  const PROJECT_ID = "45672752-fa2e-43d2-9d8d-fbd6fb539b11";
+  const DEVICE_ID = "68bfe47d32771f177b5e1bf8_guiji-001";
+  const REGION = "5791e7b116.st1"; // 华为云域名前缀
 
-    let path = [];
-    const savedPath = localStorage.getItem('gpsPath');
-    if(savedPath){ try{ path=JSON.parse(savedPath); }catch(e){ path=[]; } }
+  // ---------- 初始化地图 ----------
+  let initialPos = [108.073, 34.280]; // 默认坐标
+  const map = new AMap.Map('mapContainer', { zoom:16, center:initialPos });
+  const marker = new AMap.Marker({ position: initialPos, map:map });
+  let path = [];
+  const polyline = new AMap.Polyline({ path:[initialPos], strokeColor:"#FF0000", strokeWeight:4, map:map });
 
-    const polyline = new AMap.Polyline({
-      path: path.length>0 ? path : [initialPos],
-      strokeColor:"#FF0000",
-      strokeWeight:4,
-      map: map
-    });
+  function clearPath() {
+    path=[];
+    polyline.setPath([initialPos]);
+    marker.setPosition(initialPos);
+    map.setCenter(initialPos);
+    console.log('轨迹已清除');
+  }
 
-    if(path.length>0){ marker.setPosition(path[path.length-1]); map.setCenter(path[path.length-1]); }
+  // ---------- HMAC-SHA256签名 ----------
+  function getSignature(method, uri, ak, sk, timestamp) {
+    const signingStr = `${method}\n${uri}\n${timestamp}`;
+    const hmac = CryptoJS.HmacSHA256(signingStr, sk);
+    return "SDK-HMAC-SHA256 " + ak + ":" + CryptoJS.enc.Base64.stringify(hmac);
+  }
 
-    if(navigator.geolocation){
-      navigator.geolocation.getCurrentPosition(pos=>{
-        const lng=pos.coords.longitude;
-        const lat=pos.coords.latitude;
-        initialPos=[lng,lat];
-        marker.setPosition(initialPos);
-        map.setCenter(initialPos);
-        if(path.length===0){ path.push(initialPos); polyline.setPath(path); }
+  // ---------- 拉取影子数据 ----------
+  async function fetchShadow() {
+    try {
+      const apiUri = `/v5/iot/${PROJECT_ID}/devices/${DEVICE_ID}/shadow`;
+      const apiUrl = `https://${REGION}.iotda-app.cn-north-4.myhuaweicloud.com${apiUri}`;
+      const timestamp = new Date().toISOString();
+      const signature = getSignature("GET", apiUri, AK, SK, timestamp);
+
+      const res = await fetch(apiUrl, {
+        method:"GET",
+        headers: {
+          "Authorization": signature,
+          "X-Sdk-Date": timestamp
+        }
       });
+      const data = await res.json();
+      const reported = data.shadow[0]?.reported?.properties;
+      if (!reported) return null;
+
+      return { 
+        longitude: reported.longitude,
+        latitude: reported.latitude,
+        eventTime: reported.eventTime
+      };
+    } catch (err) {
+      console.error("获取影子失败:", err);
+      return null;
     }
+  }
 
-    function clearPath(){
-      path=[]; polyline.setPath([initialPos]);
-      marker.setPosition(initialPos); map.setCenter(initialPos);
-      localStorage.removeItem('gpsPath');
+  // ---------- 实时更新 ----------
+  async function updateMap() {
+    const props = await fetchShadow();
+    if (props) {
+      const pos = [parseFloat(props.longitude), parseFloat(props.latitude)];
+      marker.setPosition(pos);
+      map.setCenter(pos);
+      path.push(pos);
+      polyline.setPath(path);
+      document.getElementById("longitude").innerText = `经度: ${pos[0]}`;
+      document.getElementById("latitude").innerText = `纬度: ${pos[1]}`;
+      document.getElementById("time").innerText = `时间: ${props.eventTime}`;
     }
+  }
 
-    // ---------- 模拟 GPS ----------
-    let simulateInterval=null;
-    function startSimulation(){
-      if(simulateInterval) return;
-      simulateInterval=setInterval(()=>{
-        let lng=path.length>0 ? path[path.length-1][0]:initialPos[0];
-        let lat=path.length>0 ? path[path.length-1][1]:initialPos[1];
-        lng+=(Math.random()-0.5)*0.0005;
-        lat+=(Math.random()-0.5)*0.0005;
-        handleModelData({longitude: lng, latitude: lat});
-      },2000);
-      document.getElementById('status').innerText='数据源: 模拟 GPS';
-    }
-    function stopSimulation(){ if(simulateInterval){ clearInterval(simulateInterval); simulateInterval=null; } }
-    document.getElementById('startBtn').onclick=startSimulation;
-    document.getElementById('stopBtn').onclick=stopSimulation;
-
-    function handleModelData(data){
-      const lng=parseFloat(data.longitude);
-      const lat=parseFloat(data.latitude);
-      if(!isNaN(lng) && !isNaN(lat)){
-        const pos=[lng,lat];
-        marker.setPosition(pos);
-        map.setCenter(pos);
-        path.push(pos);
-        polyline.setPath(path);
-        localStorage.setItem('gpsPath',JSON.stringify(path));
-        document.getElementById('modelData').innerText=`物模型数据: 经度 ${lng.toFixed(6)}, 纬度 ${lat.toFixed(6)}`;
-      }
-    }
-
-    // ---------- AGC Web SDK 实时轨迹（自动重连） ----------
-    var agConnectConfig = {
-      "client": {
-        "cp_id":"10086000893577194",
-        "product_id":"68bfe47d32771f177b5e1bf8",
-        "client_id":"1772358902709541760",
-        "client_secret":"A1D79AD704620F0C758E0ACB8BF146B7762736BC70F884E7DAF8294A1EDD31FA",
-        "project_id":"45672752-fa2e-43d2-9d8d-fbd6fb539b11",
-        "app_id":"245150415728747952",
-        "api_key":"DgEDANi9U4EG9MMr/5PBc2TaJLfTA6PYMUM2D6aiVqBrIPL9YqDJn+TQlsr/YHT/kqZyS7GDFizHe5YsBt87k1QuwcAHnzaEkRCX1g=="
-      }
-    };
-    AGConnect.init(agConnectConfig);
-
-    let wsClient = null;
-    const deviceId = "68bfe47d32771f177b5e1bf8_guiji-001";
-
-    async function connectRealtime(){
-      try{
-        wsClient = await AGConnect.IoTDA.Device.connect(deviceId);
-        document.getElementById('status').innerText='数据源: AGC 实时';
-        console.log('AGC WebSocket 已连接');
-
-        wsClient.on('message', msg=>{
-          if(msg.shadow && msg.shadow[0] && msg.shadow[0].reported && msg.shadow[0].reported.properties){
-            handleModelData(msg.shadow[0].reported.properties);
-          }
-        });
-
-        wsClient.on('disconnect', ()=>{
-          console.warn('AGC WebSocket 已断开，3秒后尝试重连...');
-          document.getElementById('status').innerText='数据源: 已断开，重连中...';
-          setTimeout(connectRealtime, 3000);
-        });
-
-        wsClient.on('error', e=>{
-          console.error('AGC WebSocket 错误', e);
-        });
-
-      }catch(e){
-        console.error('AGC WebSocket 连接失败，3秒后重试', e);
-        document.getElementById('status').innerText='数据源: 连接失败，重试中...';
-        setTimeout(connectRealtime, 3000);
-      }
-    }
-
-    connectRealtime(); // 启动实时连接
-  </script>
+  setInterval(updateMap, 5000); // 每5秒刷新一次
+</script>
 </body>
 </html>
