@@ -1,118 +1,125 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ESP32 GPS 轨迹演示</title>
-  <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
-  <style>
-    html, body { height: 100%; margin: 0; }
-    #mapContainer { width: 100%; height: 100%; }
-    #controls {
-      position: absolute; top: 10px; left: 10px;
-      background: rgba(255,255,255,0.9);
-      padding: 10px; border-radius:6px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-      z-index: 999;
-      font-family: Arial, sans-serif;
-    }
-    #controls div { margin-bottom:5px; font-size:14px; }
-    button { margin-right:5px; padding:5px 10px; border:none; border-radius:4px; cursor:pointer; }
-    button.connect { background:#4CAF50; color:white; }
-    button.disconnect { background:#f44336; color:white; }
-    button.simulate { background:#2196F3; color:white; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32 GPS 轨迹显示</title>
+<script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
+<style>
+  html, body { height:100%; margin:0; }
+  #mapContainer { width:100%; height:100%; }
+  #controls {
+    position: absolute;
+    top:10px; left:10px;
+    background: rgba(255,255,255,0.9);
+    padding:10px; border-radius:5px;
+    z-index: 999;
+  }
+  #controls div { margin-bottom:5px; }
+  button { margin-right:5px; }
+</style>
 </head>
 <body>
-  <div id="mapContainer"></div>
-  <div id="controls">
-    <div id="status">状态: 未连接</div>
-    <div id="longitude">经度: --</div>
-    <div id="latitude">纬度: --</div>
-    <div id="time">时间: --</div>
-    <button class="connect" onclick="connect()">连接</button>
-    <button class="disconnect" onclick="disconnect()">断开</button>
-    <button class="simulate" onclick="toggleSimulation()">模拟</button>
-  </div>
+<div id="mapContainer"></div>
+<div id="controls">
+  <div>状态: <span id="status">未连接</span></div>
+  <div>经度: <span id="longitude">--</span></div>
+  <div>纬度: <span id="latitude">--</span></div>
+  <div>时间: <span id="time">--</span></div>
+  <button id="connectBtn">连接ESP32</button>
+  <button id="simulateBtn">开始模拟</button>
+  <button id="clearBtn">清除轨迹</button>
+</div>
 
-  <script>
-    const defaultPos = [108.073, 34.280];
-    const map = new AMap.Map('mapContainer', { zoom: 15, center: defaultPos });
-    const marker = new AMap.Marker({ position: defaultPos, map: map });
-    let path = [];
-    const polyline = new AMap.Polyline({ path:[defaultPos], strokeColor:"#FF0000", strokeWeight:4, map:map });
+<script>
+let defaultPos = [108.073, 34.280]; // 默认坐标
+let map = new AMap.Map('mapContainer',{ zoom:16, center:defaultPos });
+let marker = new AMap.Marker({ position: defaultPos, map: map });
+let path = [];
+let polyline = new AMap.Polyline({ path:[defaultPos], strokeColor:"#FF0000", strokeWeight:4, map:map });
 
-    let connected = false;
-    let simulating = false;
-    let timer = null;
+let intervalId = null;
+let simulate = false;
+let connect = false;
 
-    function resetMap() {
-      path = [];
-      marker.setPosition(defaultPos);
-      polyline.setPath([defaultPos]);
-      map.setCenter(defaultPos);
-      document.getElementById("longitude").innerText = `经度: --`;
-      document.getElementById("latitude").innerText = `纬度: --`;
-      document.getElementById("time").innerText = `时间: --`;
-    }
+// 模拟数据数组
+const mockData = [
+  {longitude:108.074, latitude:34.281},
+  {longitude:108.075, latitude:34.282},
+  {longitude:108.076, latitude:34.283},
+  {longitude:108.077, latitude:34.284}
+];
+let mockIndex = 0;
 
-    async function fetchGPS() {
-      try {
-        let data;
-        if (simulating || connected) {
-          const res = await fetch("/api/gps");
-          data = await res.json();
-        } else {
-          resetMap();
-          return;
-        }
+function clearPath(){
+  path=[];
+  polyline.setPath([defaultPos]);
+  marker.setPosition(defaultPos);
+  map.setCenter(defaultPos);
+  document.getElementById('longitude').innerText="--";
+  document.getElementById('latitude').innerText="--";
+  document.getElementById('time').innerText="--";
+}
 
-        const { longitude, latitude, eventTime } = data;
-        const pos = [parseFloat(longitude), parseFloat(latitude)];
-        marker.setPosition(pos);
-        path.push(pos);
-        polyline.setPath(path);
-        map.setCenter(pos);
+// 刷新地图函数
+async function updateMap(){
+  let posData = null;
 
-        document.getElementById("longitude").innerText = `经度: ${longitude}`;
-        document.getElementById("latitude").innerText = `纬度: ${latitude}`;
-        document.getElementById("time").innerText = `时间: ${eventTime}`;
-      } catch(err) {
-        console.error("获取GPS失败:", err);
-      }
-    }
-
-    function connect() {
-      if (!connected) {
-        if (simulating) { alert("请先关闭模拟再连接 ESP32"); return; }
-        connected = true;
-        document.getElementById("status").innerText = "状态: 已连接 ESP32";
-        timer = setInterval(fetchGPS, 5000);
-        fetchGPS();
-      }
-    }
-
-    function disconnect() {
-      if (connected) {
-        connected = false;
-        document.getElementById("status").innerText = "状态: 未连接";
-        clearInterval(timer);
-        resetMap();
-      }
-    }
-
-    function toggleSimulation() {
-      if (connected) { alert("请先断开 ESP32 连接再模拟"); return; }
-      simulating = !simulating;
-      document.getElementById("status").innerText = simulating ? "状态: 模拟中" : "状态: 未连接";
-      clearInterval(timer);
-      if (simulating) {
-        timer = setInterval(fetchGPS, 5000);
-        fetchGPS();
+  if(simulate){
+    posData = mockData[mockIndex];
+    mockIndex = (mockIndex+1) % mockData.length;
+    document.getElementById('status').innerText = '模拟中';
+  } else if(connect){
+    try{
+      const res = await fetch('/api/gps');
+      if(res.ok){
+        posData = await res.json();
+        document.getElementById('status').innerText = '已连接';
       } else {
-        resetMap();
+        document.getElementById('status').innerText = '等待ESP32数据';
+        return;
       }
+    }catch(e){
+      document.getElementById('status').innerText = '连接失败';
+      console.error(e);
+      return;
     }
-  </script>
+  } else {
+    posData = {longitude:defaultPos[0], latitude:defaultPos[1], eventTime:'--'};
+    document.getElementById('status').innerText = '未连接';
+  }
+
+  if(posData){
+    const pos = [parseFloat(posData.longitude), parseFloat(posData.latitude)];
+    marker.setPosition(pos);
+    map.setCenter(pos);
+    path.push(pos);
+    polyline.setPath(path);
+    document.getElementById('longitude').innerText = pos[0];
+    document.getElementById('latitude').innerText = pos[1];
+    document.getElementById('time').innerText = posData.eventTime || new Date().toLocaleTimeString();
+  }
+}
+
+document.getElementById('simulateBtn').onclick = function(){
+  simulate = !simulate;
+  this.innerText = simulate ? '停止模拟' : '开始模拟';
+  if(simulate){
+    connect=false;
+  }
+};
+
+document.getElementById('connectBtn').onclick = function(){
+  connect = !connect;
+  this.innerText = connect ? '断开ESP32' : '连接ESP32';
+  if(connect){
+    simulate=false;
+  }
+};
+
+document.getElementById('clearBtn').onclick = clearPath;
+
+intervalId = setInterval(updateMap, 2000); // 2秒刷新一次
+</script>
 </body>
 </html>
