@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ESP32 GPS 模拟/显示</title>
+<title>ESP32 GPS轨迹演示</title>
 <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
 <style>
   html, body { height:100%; margin:0; }
@@ -16,96 +16,97 @@
     z-index: 999;
   }
   #controls div { margin-bottom:5px; }
-  button { margin-right:5px; }
 </style>
 </head>
 <body>
 <div id="mapContainer"></div>
 <div id="controls">
-  <div id="status">状态: 未连接</div>
+  <div>连接状态: <span id="status">未连接</span></div>
   <div id="longitude">经度: --</div>
   <div id="latitude">纬度: --</div>
   <div id="time">时间: --</div>
-  <button id="connectBtn">连接ESP32</button>
+  <button id="connectBtn">连接 ESP32</button>
   <button id="simulateBtn">开始模拟</button>
+  <button id="clearBtn">清除轨迹</button>
 </div>
 
 <script>
-  const defaultPos = [108.073, 34.280]; // 默认坐标
-  let posData = { longitude: defaultPos[0], latitude: defaultPos[1], eventTime: '--' };
-  let simulate = false;
-  let connect = false;
+const defaultPos = [108.073, 34.280];
+const map = new AMap.Map('mapContainer', { zoom:16, center:defaultPos });
+const marker = new AMap.Marker({ position: defaultPos, map: map });
+let path = [];
+const polyline = new AMap.Polyline({ path:[defaultPos], strokeColor:"#FF0000", strokeWeight:4, map:map });
 
-  const map = new AMap.Map('mapContainer', { zoom:16, center:defaultPos });
-  const marker = new AMap.Marker({ position: defaultPos, map:map });
-  let path = [];
-  const polyline = new AMap.Polyline({ path:[defaultPos], strokeColor:"#FF0000", strokeWeight:4, map:map });
+let connected = false;
+let simulating = false;
 
-  document.getElementById('connectBtn').addEventListener('click', () => {
-    connect = !connect;
-    document.getElementById('connectBtn').innerText = connect ? '断开ESP32' : '连接ESP32';
-    if(!connect) document.getElementById('status').innerText = '状态: 未连接';
-  });
+// 清除轨迹
+document.getElementById('clearBtn').onclick = () => {
+  path = [];
+  polyline.setPath([defaultPos]);
+  marker.setPosition(defaultPos);
+  map.setCenter(defaultPos);
+};
 
-  document.getElementById('simulateBtn').addEventListener('click', () => {
-    simulate = !simulate;
-    document.getElementById('simulateBtn').innerText = simulate ? '停止模拟' : '开始模拟';
-    if(!simulate){
-      posData = { longitude: defaultPos[0], latitude: defaultPos[1], eventTime: '--' };
-      marker.setPosition(defaultPos);
-      map.setCenter(defaultPos);
-      path = [defaultPos];
-      polyline.setPath(path);
-      document.getElementById('status').innerText = '状态: 未连接';
-      document.getElementById('longitude').innerText = `经度: ${posData.longitude}`;
-      document.getElementById('latitude').innerText = `纬度: ${posData.latitude}`;
-      document.getElementById('time').innerText = `时间: ${posData.eventTime}`;
-    }
-  });
+// 连接 ESP32（UI模拟）
+document.getElementById('connectBtn').onclick = () => {
+  connected = !connected;
+  document.getElementById('status').innerText = connected ? "已连接" : "未连接";
+  document.getElementById('connectBtn').innerText = connected ? "断开 ESP32" : "连接 ESP32";
+};
 
-  async function updateMap() {
-    if(simulate){
-      const offset = 0.001;
-      posData = {
-        longitude: defaultPos[0] + (Math.random()*2-1)*offset,
-        latitude: defaultPos[1] + (Math.random()*2-1)*offset,
-        eventTime: new Date().toLocaleTimeString()
-      };
-      document.getElementById('status').innerText = '状态: 模拟中';
-    } else if(connect){
-      try{
-        const res = await fetch('/api/gps');
-        if(res.ok){
-          const data = await res.json();
-          if(data.longitude && data.latitude){
-            posData = data;
-            document.getElementById('status').innerText = '状态: 已连接';
-          } else {
-            document.getElementById('status').innerText = '状态: 等待ESP32数据';
-            return;
-          }
-        } else {
-          document.getElementById('status').innerText = '状态: 等待ESP32数据';
-          return;
-        }
-      }catch(e){
-        document.getElementById('status').innerText = '状态: 连接失败';
-        console.error(e);
-        return;
-      }
-    }
+// 模拟按钮
+document.getElementById('simulateBtn').onclick = () => {
+  simulating = !simulating;
+  document.getElementById('simulateBtn').innerText = simulating ? "停止模拟" : "开始模拟";
+};
 
-    const pos = [parseFloat(posData.longitude), parseFloat(posData.latitude)];
-    marker.setPosition(pos);
-    map.setCenter(pos);
-    path.push(pos);
-    polyline.setPath(path);
-    document.getElementById('longitude').innerText = `经度: ${posData.longitude}`;
-    document.getElementById('latitude').innerText = `纬度: ${posData.latitude}`;
-    document.getElementById('time').innerText = `时间: ${posData.eventTime}`;
+// 获取数据（真实/模拟）
+async function fetchGPS() {
+  if (simulating) {
+    const lastPos = path.length ? path[path.length-1] : defaultPos;
+    const delta = 0.0005;
+    const newPos = [
+      lastPos[0] + (Math.random()-0.5)*delta,
+      lastPos[1] + (Math.random()-0.5)*delta
+    ];
+    const eventTime = new Date().toISOString();
+    return { longitude:newPos[0], latitude:newPos[1], eventTime };
   }
 
-  setInterval(updateMap, 1000);
+  if (connected) {
+    try {
+      const res = await fetch('/api/gps');
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.longitude || !data.latitude) return null;
+      return data;
+    } catch(e) {
+      console.warn("获取真实数据失败:", e);
+      return null;
+    }
+  }
+
+  return null;
+}
+
+// 更新地图
+async function updateMap() {
+  const gps = await fetchGPS();
+  if (!gps) return;
+
+  const pos = [parseFloat(gps.longitude), parseFloat(gps.latitude)];
+  marker.setPosition(pos);
+  map.setCenter(pos);
+  path.push(pos);
+  polyline.setPath(path);
+
+  document.getElementById('longitude').innerText = `经度: ${pos[0].toFixed(6)}`;
+  document.getElementById('latitude').innerText = `纬度: ${pos[1].toFixed(6)}`;
+  document.getElementById('time').innerText = `时间: ${gps.eventTime}`;
+}
+
+setInterval(updateMap, 2000);
 </script>
 </body>
 </html>
