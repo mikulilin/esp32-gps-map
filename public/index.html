@@ -28,6 +28,7 @@
 </div>
 
 <script>
+  // ---------- 初始化地图 ----------
   let initialPos = [108.073, 34.280]; // 默认坐标
   const map = new AMap.Map('mapContainer', { zoom:16, center:initialPos });
   const marker = new AMap.Marker({ position: initialPos, map:map });
@@ -45,18 +46,19 @@
   // ---------- 拉取影子数据 ----------
   async function fetchShadow() {
     try {
-      const res = await fetch('/api/shadow');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      const res = await fetch("/api/shadow"); // 调用 Vercel API
+      const data = await res.json();
+      return data;
     } catch (err) {
       console.error("获取影子失败:", err);
       return null;
     }
   }
 
+  // ---------- 实时更新地图 ----------
   async function updateMap() {
     const props = await fetchShadow();
-    if (props) {
+    if (props && props.longitude && props.latitude) {
       const pos = [parseFloat(props.longitude), parseFloat(props.latitude)];
       marker.setPosition(pos);
       map.setCenter(pos);
@@ -68,7 +70,7 @@
     }
   }
 
-  setInterval(updateMap, 5000);
+  setInterval(updateMap, 5000); // 每5秒刷新一次
 </script>
 </body>
 </html>
