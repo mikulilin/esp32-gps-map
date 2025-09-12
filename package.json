@@ -1,6 +1,6 @@
 {
   "name": "esp32-gps-map",
   "version": "1.0.0",
-  "scripts": {},
+  "main": "index.js",
   "dependencies": {}
 }
