@@ -1,16 +1,15 @@
-export default function handler(req, res) {
-  // 模拟返回假GPS数据
-  const baseLon = 108.073;
-  const baseLat = 34.280;
-  const delta = 0.0005;
-  const randomLon = baseLon + (Math.random()-0.5)*delta*10;
-  const randomLat = baseLat + (Math.random()-0.5)*delta*10;
+// 模拟 Vercel API，等待 ESP32 数据接入
+let lastData = { longitude:108.073, latitude:34.280, eventTime:new Date().toISOString() };
 
-  const data = {
-    longitude: randomLon.toFixed(6),
-    latitude: randomLat.toFixed(6),
+export default function handler(req, res) {
+  // 这里可以改成接收 ESP32 上传的数据
+  // 现在返回假数据
+  const delta = 0.0005;
+  const newPos = {
+    longitude: lastData.longitude + (Math.random()-0.5)*delta,
+    latitude: lastData.latitude + (Math.random()-0.5)*delta,
     eventTime: new Date().toISOString()
   };
-
-  res.status(200).json(data);
+  lastData = newPos;
+  res.status(200).json(newPos);
 }
