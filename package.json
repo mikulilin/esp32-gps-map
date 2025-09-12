@@ -1,11 +1,6 @@
 {
-  "name": "esp32-gps-map",
+  "name": "esp32-gps",
   "version": "1.0.0",
   "main": "index.js",
-  "scripts": {
-    "start": "node api/shadow.js"
-  },
-  "dependencies": {
-    "ws": "^8.13.0"
-  }
+  "license": "MIT"
 }
