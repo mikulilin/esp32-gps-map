@@ -52,47 +52,35 @@
     map.setCenter(defaultPos);
   }
 
-  connectBtn.onclick = () => {
-    connected = !connected;
-    statusDiv.innerText = connected ? "状态: 已连接 ESP32" : "状态: 未连接";
-  }
-
   simulateBtn.onclick = () => {
     simulating = !simulating;
     simulateBtn.innerText = simulating ? "停止模拟" : "开始模拟";
   }
 
-  async function fetchGPS() {
-    if (simulating) {
-      const lastPos = path.length ? path[path.length-1] : defaultPos;
-      const delta = 0.0005;
-      const newPos = [
-        lastPos[0] + (Math.random()-0.5)*delta,
-        lastPos[1] + (Math.random()-0.5)*delta
-      ];
-      return { longitude:newPos[0], latitude:newPos[1], eventTime:new Date().toISOString() };
-    }
-
-    if (connected) {
-      try {
-        const res = await fetch('/api/gps');
-        if (!res.ok) return null;
-        const data = await res.json();
-        if (data.longitude == null || data.latitude == null) return null;
-        return data;
-      } catch(e) {
-        console.warn("获取真实数据失败:", e);
-        return null;
+  async function checkESP32Connection() {
+    try {
+      const res = await fetch('/api/gps');
+      if (!res.ok) throw new Error("请求失败");
+      const data = await res.json();
+      if (data.longitude == null || data.latitude == null) {
+        connected = false;
+        statusDiv.innerText = "状态: 连接失败（无数据）";
+      } else {
+        connected = true;
+        statusDiv.innerText = "状态: 已连接 ESP32";
+        updateMarker(data);
       }
+    } catch (e) {
+      connected = false;
+      statusDiv.innerText = "状态: 连接失败";
     }
-
-    return null;
   }
 
-  async function updateMap() {
-    const gps = await fetchGPS();
-    if (!gps) return; // 无数据时不动
+  connectBtn.onclick = () => {
+    checkESP32Connection();
+  }
 
+  function updateMarker(gps) {
     const pos = [parseFloat(gps.longitude), parseFloat(gps.latitude)];
     marker.setPosition(pos);
     map.setCenter(pos);
@@ -104,7 +92,38 @@
     document.getElementById('time').innerText = `时间: ${gps.eventTime}`;
   }
 
+  async function fetchGPS() {
+    if (simulating) {
+      const lastPos = path.length ? path[path.length-1] : defaultPos;
+      const delta = 0.0005;
+      return {
+        longitude: lastPos[0] + (Math.random()-0.5)*delta,
+        latitude: lastPos[1] + (Math.random()-0.5)*delta,
+        eventTime: new Date().toISOString()
+      };
+    }
+    if (connected) {
+      try {
+        const res = await fetch('/api/gps');
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data.longitude == null || data.latitude == null) return null;
+        return data;
+      } catch (e) {
+        console.warn("获取真实数据失败:", e);
+        return null;
+      }
+    }
+    return null;
+  }
+
+  async function updateMap() {
+    const gps = await fetchGPS();
+    if (gps) updateMarker(gps);
+  }
+
   setInterval(updateMap, 1000);
+
 </script>
 </body>
 </html>
