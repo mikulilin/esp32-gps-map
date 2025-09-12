@@ -3,12 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ESP32 GPS轨迹</title>
+<title>GPS轨迹 + 高德地图</title>
 <script src="https://webapi.amap.com/maps?v=2.0&key=99aaad9da054b71f551fb168b5a88088"></script>
 <style>
   html, body { height:100%; margin:0; }
   #mapContainer { width:100%; height:100%; }
-  #controls { position:absolute; top:10px; left:10px; background:rgba(255,255,255,0.9); padding:10px; border-radius:5px; z-index:999; }
+  #controls {
+    position: absolute;
+    top: 10px; left: 10px;
+    background: rgba(255,255,255,0.9);
+    padding: 10px; border-radius:5px;
+    z-index: 999;
+  }
   #controls div { margin-bottom:5px; }
 </style>
 </head>
@@ -22,7 +28,7 @@
 </div>
 
 <script>
-  let initialPos = [108.073, 34.280];
+  let initialPos = [108.073, 34.280]; // 默认位置
   const map = new AMap.Map('mapContainer', { zoom:16, center:initialPos });
   const marker = new AMap.Marker({ position: initialPos, map:map });
   let path = [];
@@ -35,21 +41,32 @@
     map.setCenter(initialPos);
   }
 
-  // WebSocket 连接
-  const protocol = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${protocol}://${location.host}/api/shadow`);
+  async function fetchShadow() {
+    try {
+      const res = await fetch('/api/shadow'); // 轮询你的 Vercel API
+      const data = await res.json();
+      return data;
+    } catch (err) {
+      console.error('获取影子失败:', err);
+      return null;
+    }
+  }
 
-  ws.onmessage = (evt) => {
-    const data = JSON.parse(evt.data);
-    const pos = [parseFloat(data.longitude), parseFloat(data.latitude)];
-    marker.setPosition(pos);
-    map.setCenter(pos);
-    path.push(pos);
-    polyline.setPath(path);
-    document.getElementById("longitude").innerText = `经度: ${pos[0]}`;
-    document.getElementById("latitude").innerText = `纬度: ${pos[1]}`;
-    document.getElementById("time").innerText = `时间: ${data.eventTime}`;
-  };
+  async function updateMap() {
+    const props = await fetchShadow();
+    if (props) {
+      const pos = [parseFloat(props.longitude), parseFloat(props.latitude)];
+      marker.setPosition(pos);
+      map.setCenter(pos);
+      path.push(pos);
+      polyline.setPath(path);
+      document.getElementById("longitude").innerText = `经度: ${pos[0]}`;
+      document.getElementById("latitude").innerText = `纬度: ${pos[1]}`;
+      document.getElementById("time").innerText = `时间: ${props.eventTime}`;
+    }
+  }
+
+  setInterval(updateMap, 5000); // 每5秒刷新一次
 </script>
 </body>
 </html>
