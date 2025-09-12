@@ -1,35 +1,27 @@
-import axios from "axios";
-import crypto from "crypto";
+// api/gps.js
+let gpsData = [];  // 存在内存里，Vercel无数据库时简单方案
 
-export default async function handler(req, res) {
-    // ---------- 直接写死AK/SK和设备信息 ----------
-    const AK = "gpsguiji";
-    const SK = "123456guiji";
-    const PROJECT_ID = "45672752-fa2e-43d2-9d8d-fbd6fb539b11";
-    const DEVICE_ID = "68bfe47d32771f177b5e1bf8_guiji-001";
-    const REGION = "5791e7b116.st1";
-
+export default function handler(req, res) {
+  if (req.method === "POST") {
     try {
-        const apiUri = `/v5/iot/${PROJECT_ID}/devices/${DEVICE_ID}/shadow`;
-        const apiUrl = `https://${REGION}.iotda-app.cn-north-4.myhuaweicloud.com${apiUri}`;
-        const timestamp = new Date().toISOString();
+      const { longitude, latitude, eventTime } = req.body;
 
-        const signingStr = `GET\n${apiUri}\n${timestamp}`;
-        const hmac = crypto.createHmac("sha256", SK).update(signingStr).digest("base64");
-        const signature = `SDK-HMAC-SHA256 ${AK}:${hmac}`;
+      if (!longitude || !latitude) {
+        return res.status(400).json({ error: "缺少经纬度" });
+      }
 
-        const response = await axios.get(apiUrl, {
-            headers: {
-                "Authorization": signature,
-                "X-Sdk-Date": timestamp
-            }
-        });
+      gpsData.push({ longitude, latitude, eventTime });
+      if (gpsData.length > 100) gpsData.shift(); // 保留最近100条
 
-        // 允许前端访问
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.status(200).json(response.data);
-
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+      return res.status(200).json({ message: "数据上传成功" });
+    } catch (e) {
+      return res.status(500).json({ error: "上传失败", details: e.message });
     }
+  }
+
+  if (req.method === "GET") {
+    return res.status(200).json(gpsData);
+  }
+
+  return res.status(405).json({ error: "不支持该方法" });
 }
