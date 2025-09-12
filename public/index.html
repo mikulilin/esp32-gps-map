@@ -28,7 +28,6 @@
 </div>
 
 <script>
-  // ---------- 初始化地图 ----------
   let initialPos = [108.073, 34.280]; // 默认坐标
   const map = new AMap.Map('mapContainer', { zoom:16, center:initialPos });
   const marker = new AMap.Marker({ position: initialPos, map:map });
@@ -43,17 +42,12 @@
     console.log('轨迹已清除');
   }
 
-  // ---------- 调用中转服务 ----------
+  // ---------- 拉取影子数据 ----------
   async function fetchShadow() {
     try {
-      const res = await fetch("/api/shadow");
-      const data = await res.json();
-      if (!data || data.error) return null;
-      return {
-        longitude: parseFloat(data.longitude),
-        latitude: parseFloat(data.latitude),
-        eventTime: data.eventTime
-      };
+      const res = await fetch('/api/shadow');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
     } catch (err) {
       console.error("获取影子失败:", err);
       return null;
@@ -62,18 +56,19 @@
 
   async function updateMap() {
     const props = await fetchShadow();
-    if (!props) return;
-    const pos = [props.longitude, props.latitude];
-    marker.setPosition(pos);
-    map.setCenter(pos);
-    path.push(pos);
-    polyline.setPath(path);
-    document.getElementById("longitude").innerText = `经度: ${pos[0]}`;
-    document.getElementById("latitude").innerText = `纬度: ${pos[1]}`;
-    document.getElementById("time").innerText = `时间: ${props.eventTime}`;
+    if (props) {
+      const pos = [parseFloat(props.longitude), parseFloat(props.latitude)];
+      marker.setPosition(pos);
+      map.setCenter(pos);
+      path.push(pos);
+      polyline.setPath(path);
+      document.getElementById("longitude").innerText = `经度: ${pos[0]}`;
+      document.getElementById("latitude").innerText = `纬度: ${pos[1]}`;
+      document.getElementById("time").innerText = `时间: ${props.eventTime}`;
+    }
   }
 
-  setInterval(updateMap, 5000); // 每5秒刷新一次
+  setInterval(updateMap, 5000);
 </script>
 </body>
 </html>
