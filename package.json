@@ -1,15 +1,8 @@
 {
-  "name": "gps-shadow-map",
+  "name": "esp32-gps-map",
   "version": "1.0.0",
-  "description": "华为云设备影子 + 高德地图轨迹显示",
-  "main": "index.js",
-  "scripts": {
-    "start": "vercel dev"
-  },
+  "main": "api/shadow.js",
   "dependencies": {
-    "axios": "^1.7.0"
-  },
-  "engines": {
-    "node": "16.x"
+    "axios": "^1.6.3"
   }
 }
