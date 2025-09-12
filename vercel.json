@@ -5,6 +5,7 @@
     { "src": "public/index.html", "use": "@vercel/static" }
   ],
   "routes": [
-    { "src": "/api/shadow", "dest": "/shadow.js" }
+    { "src": "/api/shadow", "dest": "/shadow.js" },
+    { "src": "/", "dest": "/public/index.html" }
   ]
 }
