@@ -36,5 +36,5 @@ module.exports = async (req, res) => {
   res.status(405).send('Method Not Allowed');
 };
 
-// 导出 WebSocket server 以便 Vercel / Node.js 绑定
+// 导出 WebSocket server
 module.exports.wss = wss;
