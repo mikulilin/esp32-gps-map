@@ -1,5 +1,5 @@
 // api/gps.js
-let gpsData = [];  // 存在内存里，Vercel无数据库时简单方案
+let gpsData = [];  // 内存存储数据
 
 export default function handler(req, res) {
   if (req.method === "POST") {
