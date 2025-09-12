@@ -1,18 +1,28 @@
-let lastData = null; // ESP32 未上传数据时为 null
+let lastData = null;
 
+// 这里真实 ESP32 上传时可以 POST 更新 lastData
 export default function handler(req, res) {
-  // 模拟 ESP32 上传数据（可替换为真实 ESP32 POST 数据）
-  if (Math.random() < 0.5) { // 模拟有时无数据
-    lastData = {
-      longitude: 108.073 + (Math.random()-0.5)*0.001,
-      latitude: 34.280 + (Math.random()-0.5)*0.001,
-      eventTime: new Date().toISOString()
-    };
+  // 仅 GET 返回数据
+  if (req.method === 'GET') {
+    if (lastData) {
+      res.status(200).json(lastData);
+    } else {
+      res.status(200).json({ longitude:null, latitude:null, eventTime:null });
+    }
   }
-
-  if (lastData) {
-    res.status(200).json(lastData);
-  } else {
-    res.status(200).json({ longitude:null, latitude:null, eventTime:null });
+  
+  // 可选：模拟 ESP32 POST 上传数据
+  if (req.method === 'POST') {
+    const { longitude, latitude } = req.body;
+    if (longitude != null && latitude != null) {
+      lastData = {
+        longitude: parseFloat(longitude),
+        latitude: parseFloat(latitude),
+        eventTime: new Date().toISOString()
+      };
+      res.status(200).json({ success:true });
+    } else {
+      res.status(400).json({ success:false, msg:"无效数据" });
+    }
   }
 }
