@@ -1,8 +1,6 @@
 {
-  "name": "esp32-gps-map",
+  "name": "esp32-gps-vercel",
   "version": "1.0.0",
-  "scripts": {
-    "start": "vercel dev"
-  },
+  "scripts": {},
   "dependencies": {}
 }
